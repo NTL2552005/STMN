@@ -8,18 +8,22 @@ import {
 } from "../../services/cash-register-service.js";
 import { getUnitPackage, toBaseQuantity } from "../../services/unit-service.js";
 import { escapeHtml as esc, formatCurrency, formatDate, formatNumber } from "../../utils/formatters.js";
+import { canAccessPage, getMockActorCode, requirePageAccess } from "../../services/auth-service.js";
 
 const page = document.body.dataset.page;
-const roleOptions = ["Chủ cửa hàng", "Nhân viên kho", "Nhân viên kế toán", "Nhân viên bán hàng"];
-const roleEmployees = { "Chủ cửa hàng": "NV001", "Nhân viên kho": "NV002", "Nhân viên kế toán": "NV003", "Nhân viên bán hàng": "NV004" };
+const session = await requirePageAccess("sales", page);
+const role = session.role;
+const roleEmployees = { [role]: getMockActorCode(role) || session.employeeCode };
 const warehousePages = [
-  ["Tổng quan kho", "tong-quan-kho.html", "▦"],
-  ["Phiếu nhập kho", "phieu-nhap.html", "⇩"],
-  ["Theo dõi tồn kho", "ton-kho.html", "▤"],
-  ["Xuất chuyển nội bộ", "xuat-chuyen-noi-bo.html", "⇄"],
-  ["Kiểm kê kho", "kiem-ke-kho.html", "✓"],
-  ["Biến động kho", "bien-dong-kho.html", "↗"],
-  ["Hạn sử dụng", "han-su-dung.html", "◷"]
+  ["overview", "Tổng quan kho", "tong-quan-kho.html", "▦"],
+  ["receipts", "Phiếu nhập kho", "phieu-nhap.html", "⇩"],
+  ["stock", "Theo dõi tồn kho", "ton-kho.html", "▤"],
+  ["transfers", "Xuất chuyển nội bộ", "xuat-chuyen-noi-bo.html", "⇄"],
+  ["returns", "Trả hàng NCC", "tra-hang-ncc.html", "↩"],
+  ["counts", "Kiểm kê kho", "kiem-ke-kho.html", "✓"],
+  ["ledger", "Thẻ kho", "the-kho.html", "▥"],
+  ["movements", "Biến động kho", "bien-dong-kho.html", "↗"],
+  ["expiry", "Hạn sử dụng", "han-su-dung.html", "◷"]
 ];
 const salesPages = [
   ["overview", "Tổng quan bán hàng", "tong-quan-ban-hang.html", "▦"],
@@ -31,21 +35,19 @@ const salesPages = [
   ["debts", "Công nợ khách hàng", "cong-no-khach-hang.html", "◷"]
 ];
 const accountingPages = [
-  ["Tổng quan kế toán", "tong-quan-ke-toan.html", "▦"],
-  ["Đối chiếu nhập hàng", "doi-chieu-nhap-hang.html", "⇩"],
-  ["Đối chiếu chứng từ kho", "doi-chieu-chung-tu-kho.html", "⇄"],
-  ["Công nợ nhà cung cấp", "cong-no-ncc.html", "◷"],
-  ["Thanh toán NCC", "thanh-toan-ncc.html", "＄"],
-  ["Phiếu thu", "phieu-thu.html", "＋"],
-  ["Phiếu chi", "phieu-chi.html", "－"],
-  ["Đối soát doanh thu", "doi-soat-doanh-thu.html", "▤"],
-  ["Đối soát thanh toán", "doi-soat-thanh-toan.html", "✓"],
-  ["Đối soát ca bán hàng", "doi-soat-ca-ban-hang.html", "◷"],
-  ["Báo cáo kế toán", "bao-cao-ke-toan.html", "▥"]
+  ["accounting-overview", "Tổng quan kế toán", "tong-quan-ke-toan.html", "▦"],
+  ["purchase-reconciliation", "Đối chiếu nhập hàng", "doi-chieu-nhap-hang.html", "⇩"],
+  ["stock-reconciliation", "Đối chiếu chứng từ kho", "doi-chieu-chung-tu-kho.html", "⇄"],
+  ["supplier-debts", "Công nợ nhà cung cấp", "cong-no-ncc.html", "◷"],
+  ["supplier-payments", "Thanh toán NCC", "thanh-toan-ncc.html", "＄"],
+  ["receipts", "Phiếu thu", "phieu-thu.html", "＋"],
+  ["expenses", "Phiếu chi", "phieu-chi.html", "－"],
+  ["revenue-reconciliation", "Đối soát doanh thu", "doi-soat-doanh-thu.html", "▤"],
+  ["payment-reconciliation", "Đối soát thanh toán", "doi-soat-thanh-toan.html", "✓"],
+  ["cash-shift-reconciliation", "Đối soát ca bán hàng", "doi-soat-ca-ban-hang.html", "◷"],
+  ["reports", "Báo cáo kế toán", "bao-cao-ke-toan.html", "▥"]
 ];
 const pageTitle = salesPages.find(([key]) => key === page)?.[1] || "Bán hàng";
-const roleEmployeesById = Object.fromEntries(Object.entries(roleEmployees).map(([key, value]) => [value, key]));
-let role = localStorage.getItem("stmn-kho-demo-role") || "Nhân viên bán hàng";
 let locationId = localStorage.getItem("stmn-kho-demo-sales-location") || "";
 let cart = new Map();
 let selectedCustomer = "";
@@ -71,7 +73,9 @@ const itemById = (state, id) => state.HangHoa.find((row) => row.HH_Ma === id);
 const itemName = (state, id) => itemById(state, id)?.HH_Ten || id || "—";
 const partnerName = (state, id) => state.DoiTacKinhDoanh.find((row) => row.DT_Ma === id)?.DT_Ten || "Khách lẻ";
 const locationName = (state, id) => state.DiaDiem.find((row) => row.DD_Ma === id)?.DD_Ten || "—";
-const employeeName = (state, id) => state.NhanVien.find((row) => row.NV_Ma === id)?.NV_Ten || "—";
+const employeeName = (state, id) => id === session.employeeCode
+  ? session.user.employee?.NV_Ten || session.user.username
+  : state.NhanVien.find((row) => row.NV_Ma === id)?.NV_Ten || "—";
 const invoiceLines = (state, id) => state.HoaDonBanHangChiTiet.filter((row) => row.BH_Ma === id);
 const cartKey = (HH_Ma, unitFactor = 1) => `${HH_Ma}::${unitFactor}`;
 const cartBaseQuantity = (row) => row.quantity * (row.unitFactor || 1);
@@ -129,16 +133,19 @@ function shell() {
   const stores = state.DiaDiem.filter((row) => row.DD_Loai === "Cửa hàng" && row.DD_TrangThai === "Hoạt động");
   if (!stores.some((row) => row.DD_Ma === locationId)) locationId = stores[0]?.DD_Ma || "";
   localStorage.setItem("stmn-kho-demo-sales-location", locationId);
-  const salesLinks = salesPages.map(([key, label, file, icon]) => `<a class="nav-link ${page === key ? "active" : ""}" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
-  const accountingLinks = accountingPages.map(([label, file, icon]) => `<a class="nav-link" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
-  const warehouseLinks = warehousePages.map(([label, file, icon]) => `<a class="nav-link" href="../kho/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+  const salesLinks = salesPages.filter(([key]) => canAccessPage("sales", key, role))
+    .map(([key, label, file, icon]) => `<a class="nav-link ${page === key ? "active" : ""}" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+  const accountingLinks = accountingPages.filter(([key]) => canAccessPage("accounting", key, role))
+    .map(([, label, file, icon]) => `<a class="nav-link" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+  const warehouseLinks = warehousePages.filter(([key]) => canAccessPage("warehouse", key, role))
+    .map(([, label, file, icon]) => `<a class="nav-link" href="../kho/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
   document.querySelector("#app").innerHTML = `<div class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="tong-quan-ban-hang.html"><span class="brand-mark">S</span><div><strong>Siêu thị mini</strong><small>Hệ thống quản lý</small></div></a>
-      <a class="nav-link" href="../chu-cua-hang/tong-quan.html"><span class="nav-icon">⌂</span><span class="nav-text">Chủ cửa hàng</span></a>
+      ${canAccessPage("owner", "overview", role) ? '<a class="nav-link" href="../chu-cua-hang/tong-quan.html"><span class="nav-icon">⌂</span><span class="nav-text">Chủ cửa hàng</span></a>' : ""}
       <div class="nav-label">Bán hàng</div>${salesLinks}
-      <div class="module-label">Kế toán</div>${accountingLinks}
-      <div class="module-label">Quản lý kho</div>${warehouseLinks}
+      ${accountingLinks ? `<div class="module-label">Kế toán</div>${accountingLinks}` : ""}
+      ${warehouseLinks ? `<div class="module-label">Quản lý kho</div>${warehouseLinks}` : ""}
       <div class="sidebar-bottom">Dữ liệu kho và POS dùng chung<br>Mock data · lưu trên trình duyệt</div>
     </aside>
     <main class="main-area">
@@ -146,8 +153,8 @@ function shell() {
         <div><div class="topbar-title">${pageTitle}</div><div class="topbar-subtitle">Bán hàng tại quầy · Bản mô phỏng nghiệp vụ</div></div>
         <div class="topbar-actions">
           <select id="sales-location" aria-label="Địa điểm bán">${options(stores, "DD_Ma", "DD_Ten", locationId)}</select>
-          <select id="sales-role" aria-label="Vai trò demo">${roleOptions.map((name) => `<option ${role === name ? "selected" : ""}>${name}</option>`).join("")}</select>
-          <span class="user-role">${esc(employeeName(state, roleEmployees[role]))}</span>
+          <span class="user-role">${esc(session.user.employee?.NV_Ten || session.user.username)} · ${esc(role)}</span>
+          <button class="button button-small" data-auth-logout>Đăng xuất</button>
           <button class="button button-small" data-action="reset">Khôi phục demo</button>
         </div>
       </header>
@@ -1921,28 +1928,6 @@ function handleChange(event) {
       cameraProcessing = false;
       startCameraScanner(session);
     });
-  } else if (target.id === "sales-role") {
-    const nextRole = target.value;
-    const activeShift = getOpenCashShift(roleEmployees[role]);
-    if (activeShift && roleEmployees[nextRole] !== roleEmployees[role]
-      && !confirm(`Ca ${activeShift.Ca_Ma} vẫn đang mở. Ca sẽ được giữ nguyên và bạn cần quay lại đúng nhân viên để kết ca. Tiếp tục đổi vai trò?`)) {
-      target.value = role;
-      return;
-    }
-    if (cart.size) {
-      if (confirm("Lưu tạm giỏ hàng trước khi đổi vai trò?")) {
-        if (!saveCurrentDraft()) { target.value = role; return; }
-      } else if (confirm("Bỏ giỏ hàng hiện tại và tiếp tục đổi vai trò?")) {
-        cart.clear();
-        basketDiscount = null;
-        activeDraftId = "";
-        selectedCustomer = "";
-      } else { target.value = role; return; }
-    }
-    role = nextRole;
-    localStorage.setItem("stmn-kho-demo-role", role);
-    document.querySelector(".user-role").textContent = employeeName(getState(), roleEmployees[role]);
-    renderContent();
   } else if (target.id === "sales-location") {
     const nextLocation = target.value;
     const activeShift = getOpenCashShift(roleEmployees[role]);
