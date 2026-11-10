@@ -173,7 +173,7 @@ function shell() {
 }
 
 function rowsFor(state, table, keyField, labelField, type) {
-  return state[table].filter((row) => !type || row.DT_Loai === type || row.DT_Loai === "Cả hai")
+  return state[table].filter((row) => !type || row.DT_Loai === type)
     .map((row) => [row[keyField], row[labelField]]);
 }
 

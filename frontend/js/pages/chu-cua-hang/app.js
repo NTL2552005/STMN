@@ -1,5 +1,6 @@
 import { getAccountingDashboard, getAccountingReports } from "../../services/accounting-service.js";
 import { getState } from "../../services/kho-service.js";
+import { validatePartnerData } from "../../services/customer-service.js";
 import {
   approveManagerCount, endPrice, getManagerOverview, getManagerReports, getManagerTasks,
   getProductStockSummary, hasProductUnitHistory, saveAccount, saveCategory, saveEmployee, savePartner, savePrice, saveProduct
@@ -215,7 +216,7 @@ function renderPartners() {
     const debt = partnerDebt(state, row.DT_Ma);
     return `<tr data-search-row data-type="${esc(row.DT_Loai)}"><td>${esc(row.DT_Ma)}</td><td class="cell-primary">${esc(row.DT_Ten)}</td><td>${esc(row.DT_SDT || "—")}</td><td>${esc(row.DT_Loai)}</td><td>${statusBadge(row.DT_TrangThai)}</td><td>${debt.receivable ? formatCurrency(debt.receivable) : "—"}${debt.payable ? ` · Phải trả ${formatCurrency(debt.payable)}` : ""}</td><td>${actionButton("edit-partner", "Sửa", row.DT_Ma)} ${actionButton("view-partner", "Lịch sử", row.DT_Ma)}</td></tr>`;
   }).join("");
-  return `${heading("Đối tác kinh doanh", "Một đối tác có thể vừa là khách hàng vừa là nhà cung cấp; chuyển loại trên cùng mã DT_Ma.", actionButton("new-partner", "＋ Thêm đối tác"))}<div class="filters"><div class="field grow"><label>Tìm kiếm</label><input data-table-search placeholder="Tên, mã, điện thoại"></div><div class="field"><label>Loại đối tác</label><select data-table-filter><option value="">Tất cả</option><option>Khách hàng</option><option>Nhà cung cấp</option><option>Cả hai</option></select></div></div>${tableCard("Danh sách đối tác", `${state.DoiTacKinhDoanh.length} đối tác`, ["Mã", "Tên", "Điện thoại", "Loại", "Trạng thái", "Công nợ hiện tại", "Thao tác"], rows)}`;
+  return `${heading("Đối tác kinh doanh", "Một đối tác chỉ thuộc một loại: khách hàng hoặc nhà cung cấp.", actionButton("new-partner", "＋ Thêm đối tác"))}<div class="filters"><div class="field grow"><label>Tìm kiếm</label><input data-table-search placeholder="Tên, mã, điện thoại"></div><div class="field"><label>Loại đối tác</label><select data-table-filter><option value="">Tất cả</option><option>Khách hàng</option><option>Nhà cung cấp</option></select></div></div>${tableCard("Danh sách đối tác", `${state.DoiTacKinhDoanh.length} đối tác`, ["Mã", "Tên", "Điện thoại", "Loại", "Trạng thái", "Công nợ hiện tại", "Thao tác"], rows)}`;
 }
 
 function renderOrders() {
@@ -358,7 +359,7 @@ function openPurchaseOrderForm(state, orderId = "") {
     return toast("Chỉ chỉnh sửa đơn đặt hàng ở trạng thái Nháp.", true);
   }
   const suppliers = state.DoiTacKinhDoanh.filter((row) => (
-    ["Nhà cung cấp", "Cả hai"].includes(row.DT_Loai) && row.DT_TrangThai === "Hoạt động"
+    row.DT_Loai === "Nhà cung cấp" && row.DT_TrangThai === "Hoạt động"
   ));
   const activeEmployee = state.NhanVien.find((row) => row.NV_Ma === "NV001" && row.NV_TrangThai !== "Nghỉ việc")
     || state.NhanVien.find((row) => row.NV_TrangThai !== "Nghỉ việc");
@@ -643,29 +644,79 @@ function render() {
   document.querySelector("#page-content").innerHTML = content;
 }
 
-function field(label, name, value = "", type = "text", required = false) {
-  return `<div class="field"><label>${esc(label)}${required ? " *" : ""}</label><input name="${esc(name)}" type="${type}" value="${esc(value ?? "")}" ${required ? "required" : ""}></div>`;
+function field(label, name, value = "", type = "text", required = false, validation = false, nativeRequired = required) {
+  return `<div class="field"><label>${esc(label)}${required ? " *" : ""}</label><input name="${esc(name)}" type="${type}" value="${esc(value ?? "")}" ${nativeRequired ? "required" : ""}>${validation ? `<small class="field-validation-error" data-field-error="${esc(name)}" aria-live="polite"></small>` : ""}</div>`;
 }
 
-function selectField(label, name, rows, valueField, labelField, selected = "", required = true) {
-  return `<div class="field"><label>${esc(label)}</label><select name="${esc(name)}" ${required ? "required" : ""}>${rows.map((row) => `<option value="${esc(row[valueField])}" ${row[valueField] === selected ? "selected" : ""}>${esc(row[labelField])}</option>`).join("")}</select></div>`;
+function selectField(label, name, rows, valueField, labelField, selected = "", required = true, validation = false) {
+  return `<div class="field"><label>${esc(label)}</label><select name="${esc(name)}" ${required ? "required" : ""}>${rows.map((row) => `<option value="${esc(row[valueField])}" ${row[valueField] === selected ? "selected" : ""}>${esc(row[labelField])}</option>`).join("")}</select>${validation ? `<small class="field-validation-error" data-field-error="${esc(name)}" aria-live="polite"></small>` : ""}</div>`;
 }
 
-function openForm(titleText, fields, value, submitLabel, callback) {
-  document.querySelector("#modal-host").innerHTML = `<div class="modal-backdrop" data-action="close-modal"><form class="modal manager-modal" id="manager-form"><div class="modal-header"><h2>${esc(titleText)}</h2><button type="button" class="button button-small" data-action="close-modal">Đóng</button></div><div class="modal-body">${fields(value)}</div><div class="modal-footer"><button type="button" class="button" data-action="close-modal">Hủy</button><button class="button button-primary" type="submit">${esc(submitLabel)}</button></div></form></div>`;
-  document.querySelector("#manager-form").addEventListener("submit", async (event) => {
+function setPartnerFieldErrors(form, errors = {}, generalMessage = "") {
+  const fieldNames = new Set();
+  form.querySelectorAll("[data-field-error]").forEach((node) => {
+    const name = node.dataset.fieldError;
+    fieldNames.add(name);
+    const message = errors[name] || "";
+    node.textContent = message;
+    node.classList.toggle("visible", Boolean(message));
+    const field = node.closest(".field");
+    field?.classList.toggle("has-error", Boolean(message));
+    const input = field?.querySelector("input, select");
+    if (input) input.setAttribute("aria-invalid", String(Boolean(message)));
+  });
+  const unbound = Object.entries(errors).filter(([name]) => !fieldNames.has(name)).map(([, message]) => message);
+  const errorNode = form.querySelector("#partner-form-error");
+  if (errorNode) {
+    const message = [generalMessage, ...unbound].filter(Boolean).join(" ");
+    errorNode.textContent = message;
+    errorNode.classList.toggle("visible", Boolean(message));
+  }
+}
+
+function openForm(titleText, fields, value, submitLabel, callback, options = {}) {
+  document.querySelector("#modal-host").innerHTML = `<div class="modal-backdrop" data-action="close-modal"><form class="modal manager-modal" id="manager-form"><div class="modal-header"><h2>${esc(titleText)}</h2><button type="button" class="button button-small" data-action="close-modal">Đóng</button></div><div class="modal-body">${options.validate ? `<div class="form-error" id="partner-form-error" aria-live="polite"></div>` : ""}${fields(value)}</div><div class="modal-footer"><button type="button" class="button" data-action="close-modal">Hủy</button><button class="button button-primary" type="submit">${esc(submitLabel)}</button></div></form></div>`;
+  const form = document.querySelector("#manager-form");
+  let validationAttempted = false;
+  let serverFieldErrors = {};
+  let serverGeneralError = "";
+  const refreshErrors = (changedField = "") => {
+    if (changedField) delete serverFieldErrors[changedField];
+    serverGeneralError = "";
+    const data = Object.fromEntries(new FormData(form).entries());
+    setPartnerFieldErrors(form, { ...serverFieldErrors, ...(options.validate(data) || {}) }, serverGeneralError);
+  };
+  if (options.validate) {
+    form.addEventListener("input", (event) => { if (validationAttempted) refreshErrors(event.target.name); });
+    form.addEventListener("change", (event) => { if (validationAttempted) refreshErrors(event.target.name); });
+  }
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = Object.fromEntries(new FormData(event.currentTarget).entries());
+    if (options.validate) {
+      validationAttempted = true;
+      serverFieldErrors = {};
+      serverGeneralError = "";
+      const fieldErrors = options.validate(data) || {};
+      setPartnerFieldErrors(form, fieldErrors);
+      if (Object.keys(fieldErrors).length) return;
+    }
     try {
       await callback(data);
       closeModal();
       render();
       toast("Đã lưu thay đổi.");
     } catch (error) {
-      toast(error.message || "Không thể lưu thay đổi.", true);
+      if (options.validate) {
+        serverFieldErrors = error.fieldErrors || {};
+        serverGeneralError = Object.keys(serverFieldErrors).length ? "" : error.message || "Không thể lưu thay đổi.";
+        setPartnerFieldErrors(form, serverFieldErrors, serverGeneralError);
+      } else {
+        toast(error.message || "Không thể lưu thay đổi.", true);
+      }
     }
   });
-  if (document.querySelector("#product-has-package")) updateProductPackagingControls(document.querySelector("#manager-form"));
+  if (document.querySelector("#product-has-package")) updateProductPackagingControls(form);
 }
 
 function updateProductPackagingControls(form) {
@@ -784,7 +835,9 @@ function formActions(action, id) {
     openForm(row.GB_Ma ? "Chỉnh sửa mức giá" : "Tạo mức giá", (data) => `${selectField("Mặt hàng", "HH_Ma", state.HangHoa, "HH_Ma", "HH_Ten", data.HH_Ma || state.HangHoa[0]?.HH_Ma)}${field("Đơn giá (VND)", "GB_DonGia", data.GB_DonGia, "number", true)}${field("Ngày bắt đầu", "GB_NgayBD", data.GB_NgayBD || today(), "date", true)}${field("Ngày kết thúc", "GB_NgayKT", data.GB_NgayKT, "date")}${selectField("Trạng thái", "GB_TrangThai", [{ v: "Đang áp dụng", n: "Đang áp dụng" }, { v: "Ngừng áp dụng", n: "Ngừng áp dụng" }], "v", "n", data.GB_TrangThai || "Đang áp dụng")}`, row, "Lưu mức giá", (data) => savePrice({ ...row, ...data }, role));
   } else if (action === "new-partner" || action === "edit-partner") {
     const row = state.DoiTacKinhDoanh.find((item) => item.DT_Ma === id) || {};
-    openForm(row.DT_Ma ? "Cập nhật đối tác" : "Thêm đối tác", (data) => `${field("Tên đối tác", "DT_Ten", data.DT_Ten, "text", true)}${field("Số điện thoại", "DT_SDT", data.DT_SDT)}${field("Địa chỉ", "DT_DChi", data.DT_DChi)}${selectField("Loại", "DT_Loai", [{ v: "Khách hàng", n: "Khách hàng" }, { v: "Nhà cung cấp", n: "Nhà cung cấp" }, { v: "Cả hai", n: "Cả hai" }], "v", "n", data.DT_Loai || "Khách hàng")}${field("Số tài khoản", "DT_STK", data.DT_STK)}${selectField("Trạng thái", "DT_TrangThai", [{ v: "Hoạt động", n: "Hoạt động" }, { v: "Ngừng hoạt động", n: "Ngừng hoạt động" }], "v", "n", data.DT_TrangThai || "Hoạt động")}`, row, "Lưu đối tác", (data) => savePartner({ ...row, ...data }, role));
+    openForm(row.DT_Ma ? "Cập nhật đối tác" : "Thêm đối tác", (data) => `${field("Tên đối tác", "DT_Ten", data.DT_Ten, "text", true, true, false)}${field("Số điện thoại", "DT_SDT", data.DT_SDT, "text", false, true)}${field("Địa chỉ", "DT_DChi", data.DT_DChi, "text", false, true)}${selectField("Loại", "DT_Loai", [{ v: "Khách hàng", n: "Khách hàng" }, { v: "Nhà cung cấp", n: "Nhà cung cấp" }], "v", "n", data.DT_Loai || "Khách hàng", true, true)}${field("Số tài khoản", "DT_STK", data.DT_STK, "text", false, true)}${selectField("Trạng thái", "DT_TrangThai", [{ v: "Hoạt động", n: "Hoạt động" }, { v: "Ngừng hoạt động", n: "Ngừng hoạt động" }], "v", "n", data.DT_TrangThai || "Hoạt động", true, true)}`, row, "Lưu đối tác", (data) => savePartner({ ...row, ...data }, role), {
+      validate: (data) => validatePartnerData({ ...row, ...data }, getState().DoiTacKinhDoanh)
+    });
   } else if (action === "end-price") {
     const date = prompt("Ngày kết thúc mức giá (YYYY-MM-DD):", today());
     if (date && confirm(`Kết thúc mức giá ${id} vào ${date}?`)) {

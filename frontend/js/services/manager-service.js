@@ -3,6 +3,7 @@ import { getAccountingDashboard, getAccountingReports, getPaymentReconciliation,
 import { getActivePrice, getInventoryPosition, getReplenishmentItems } from "./inventory-service.js";
 import { approveCount, generateDemoId, getState, runDemoTransaction } from "./kho-service.js";
 import { normalizeUnitPackage } from "./unit-service.js";
+import { savePartnerRecord, validatePartnerData } from "./customer-service.js";
 
 const OWNER = "Chủ cửa hàng";
 const ACTIVE_PRICE_STATUSES = new Set(["Đang áp dụng", "Có hiệu lực", "Đang hiệu lực"]);
@@ -209,23 +210,31 @@ export function endPrice(GB_Ma, endDate, role = "") {
   });
 }
 
-export function savePartner(input, role = "") {
+export async function savePartner(input, role = "") {
   assertOwner(role);
-  return runDemoTransaction((state) => {
-    const name = requireText(input.DT_Ten, "Tên đối tác");
-    const id = input.DT_Ma || nextKey(state, "DoiTacKinhDoanh", "DT_Ma", "DT");
-    const phone = String(input.DT_SDT || "").trim();
-    if (phone) validateUnique(state, "DoiTacKinhDoanh", "DT_SDT", phone, "Số điện thoại đối tác", "DT_Ma", id);
-    if (!["Khách hàng", "Nhà cung cấp", "Cả hai"].includes(input.DT_Loai)) throw new Error("Loại đối tác không hợp lệ.");
-    const record = {
-      DT_Ma: id, DT_Ten: name, DT_SDT: phone, DT_DChi: String(input.DT_DChi || "").trim(),
-      DT_Loai: input.DT_Loai, DT_STK: String(input.DT_STK || "").trim(),
-      DT_TrangThai: input.DT_TrangThai === "Ngừng hoạt động" ? "Ngừng hoạt động" : "Hoạt động"
-    };
-    const existing = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === id);
-    if (existing) Object.assign(existing, record);
-    else state.DoiTacKinhDoanh.push(record);
-    return id;
+  const state = getState();
+  const id = input.DT_Ma || "";
+  const record = {
+    DT_Ma: id,
+    DT_Ten: input.DT_Ten,
+    DT_SDT: input.DT_SDT,
+    DT_DChi: input.DT_DChi,
+    DT_Loai: input.DT_Loai,
+    DT_STK: input.DT_STK,
+    DT_TrangThai: input.DT_TrangThai
+  };
+  const fieldErrors = validatePartnerData(record, state.DoiTacKinhDoanh);
+  if (Object.keys(fieldErrors).length) {
+    const error = new Error(Object.values(fieldErrors).join(" "));
+    error.fieldErrors = fieldErrors;
+    throw error;
+  }
+  const saved = await savePartnerRecord(record, state.DoiTacKinhDoanh);
+  return runDemoTransaction((nextState) => {
+    const existing = nextState.DoiTacKinhDoanh.find((row) => row.DT_Ma === saved.DT_Ma);
+    if (existing) Object.assign(existing, saved);
+    else nextState.DoiTacKinhDoanh.push(saved);
+    return saved.DT_Ma;
   });
 }
 

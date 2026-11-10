@@ -451,7 +451,7 @@ function openSupplierReturnForm(state, returnId = "") {
   if (returnId && (!doc || doc.TRNCC_TrangThai !== SUPPLIER_RETURN_STATUSES.draft)) {
     return toast("Chỉ chỉnh sửa được phiếu trả ở trạng thái Nháp.", true);
   }
-  const suppliers = state.DoiTacKinhDoanh.filter((row) => ["Nhà cung cấp", "Cả hai"].includes(row.DT_Loai));
+  const suppliers = state.DoiTacKinhDoanh.filter((row) => row.DT_Loai === "Nhà cung cấp");
   const activeLocations = state.DiaDiem.filter((row) => row.DD_TrangThai === "Hoạt động");
   const preferredLocation = localStorage.getItem("stmn-kho-demo-location");
   const defaultLocation = doc?.DD_Ma || (activeLocations.some((row) => row.DD_Ma === preferredLocation) ? preferredLocation : activeLocations[0]?.DD_Ma || "");
@@ -790,7 +790,7 @@ function openReceiptForm(state, receiptId = "", preferredOrderId = "") {
     ...(receipt.DH_Ma ? orderLineProgress(state, receipt.DH_Ma, line.HH_Ma, receiptId) : {})
   })) : selectedOrderId ? orderLines(state, selectedOrderId) : [];
   if (selectedOrderId && !lines.length) return toast("Đơn này không còn dòng hàng nào khả dụng để nhận.", true);
-  const vendors = state.DoiTacKinhDoanh.filter((row) => ["Nhà cung cấp", "Cả hai"].includes(row.DT_Loai));
+  const vendors = state.DoiTacKinhDoanh.filter((row) => row.DT_Loai === "Nhà cung cấp");
   const orders = getPurchaseOrderSummary(state).filter((summary) => (
     [PURCHASE_ORDER_STATUSES.waiting, PURCHASE_ORDER_STATUSES.partial].includes(summary.status)
     && (summary.order.DH_Ma === selectedOrderId || summary.lines.some((line) => line.availableToReceive > 0))

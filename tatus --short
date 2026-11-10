@@ -1,0 +1,21 @@
+ backend/apps/customers/models.py                |  42 [32m++++[m[31m-[m
+ backend/apps/customers/tests.py                 | 199 [32m+++++++++++++++++++++++[m[31m-[m
+ backend/apps/customers/views.py                 |  75 [32m++++++++[m[31m-[m
+ backend/apps/shifts/models.py                   |  42 [32m++++[m[31m-[m
+ backend/apps/shifts/tests.py                    |  60 [32m++++++[m[31m-[m
+ backend/apps/shifts/views.py                    | 188 [32m+++++++++++++++++++++[m[31m-[m
+ backend/config/settings.py                      |   9 [32m++[m
+ backend/config/urls.py                          |   4 [32m+[m[31m-[m
+ backend/requirements.txt                        |   1 [32m+[m
+ frontend/css/style.css                          |   3 [32m+[m
+ frontend/js/pages/ban-hang/app.js               |  83 [32m++++++++[m[31m--[m
+ frontend/js/pages/chu-cua-hang/app.js           |  77 [32m+++++++[m[31m--[m
+ frontend/js/pages/ke-toan/app.js                |   2 [32m+[m[31m-[m
+ frontend/js/pages/kho/app.js                    |   4 [32m+[m[31m-[m
+ frontend/js/services/accounting-service.js      |   2 [32m+[m[31m-[m
+ frontend/js/services/customer-service.js        | 163 [32m+++++++++++++++[m[31m----[m
+ frontend/js/services/manager-service.js         |  41 [32m+++[m[31m--[m
+ frontend/js/services/purchase-order-service.js  |   2 [32m+[m[31m-[m
+ frontend/js/services/sales-service.js           |   4 [32m+[m[31m-[m
+ frontend/js/services/supplier-return-service.js |   4 [32m+[m[31m-[m
+ 20 files changed, 913 insertions(+), 92 deletions(-)

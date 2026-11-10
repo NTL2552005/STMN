@@ -11,7 +11,7 @@ export const SUPPLIER_RETURN_STATUSES = {
 };
 
 const confirmedReceiptStatuses = new Set(["Đã xác nhận", "Hoàn tất", "Đã nhận"]);
-const supplierTypes = new Set(["Nhà cung cấp", "Cả hai"]);
+const supplierTypes = new Set(["Nhà cung cấp"]);
 const returnReasons = new Set([
   "Hàng hư hỏng",
   "Hàng lỗi chất lượng",
@@ -111,7 +111,7 @@ function normalizeLines(state, inputLines, supplierId, locationId, receiptId, ex
 function validateHeader(state, input) {
   const supplierId = String(input.DT_Ma || "");
   const supplier = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === supplierId && supplierTypes.has(row.DT_Loai));
-  if (!supplier) throw new Error("Chỉ chọn đối tác có loại Nhà cung cấp hoặc Cả hai.");
+  if (!supplier) throw new Error("Chỉ chọn đối tác có loại Nhà cung cấp.");
   const receipt = state.PhieuNhap.find((row) => row.PN_Ma === input.PN_Ma);
   if (!receipt || receipt.DT_Ma !== supplierId || !confirmedReceiptStatuses.has(receipt.PN_TrangThai)) {
     throw new Error("Chỉ chọn phiếu nhập đã xác nhận thuộc đúng nhà cung cấp.");

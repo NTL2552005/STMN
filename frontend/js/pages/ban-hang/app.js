@@ -1,7 +1,7 @@
 import { getState, resetDemoData } from "../../services/kho-service.js";
 import { getActivePrice, getAvailableStock, getInventoryPosition, getValidSaleLots } from "../../services/inventory-service.js";
 import { confirmPayment, createDraftInvoice, createInvoice, deleteDraftInvoice, getDraftInvoiceMetadata, getInvoiceOutstanding, getInvoicePaid, recordPayment, setPaymentStatus } from "../../services/sales-service.js";
-import { listCustomers, saveCustomer } from "../../services/customer-service.js";
+import { listCustomers, saveCustomer, validatePartnerData } from "../../services/customer-service.js";
 import {
   calculateCashShift, getCashShift, getCashShifts, getOpenCashShift, openCashShift,
   respondCashShiftExplanation, submitCashShift
@@ -1255,19 +1255,19 @@ function renderCustomers(state) {
     <td class="cell-primary">${esc(row.DT_Ma)}</td><td>${esc(row.DT_Ten)}</td><td>${esc(row.DT_SDT || "—")}</td><td>${esc(row.DT_DChi || "—")}</td><td>${esc(row.DT_Loai)}</td><td>${badge(row.DT_TrangThai)}</td><td><div class="inline-actions"><button class="button button-small" data-action="view-customer" data-id="${esc(row.DT_Ma)}">Hồ sơ</button>${saleRoles.has(role) ? `<button class="button button-small" data-action="edit-customer" data-id="${esc(row.DT_Ma)}">Sửa</button>` : ""}</div></td></tr>`).join("");
   return `${heading("Khách hàng", "Quản lý khách hàng từ DoiTacKinhDoanh; không tạo bảng KhachHang riêng.", saleRoles.has(role) ? `<button class="button button-primary" data-action="new-customer">＋ Thêm khách hàng</button>` : "")}
     ${filters([searchFilter("Tìm mã / tên / số điện thoại"), selectFilter("status", "Trạng thái", [["Hoạt động", "Hoạt động"], ["Ngừng hoạt động", "Ngừng hoạt động"]])])}
-    ${tableCard("Danh sách khách hàng", `${customers.length} đối tác`, ["Mã đối tác", "Tên khách hàng", "Số điện thoại", "Địa chỉ", "Loại đối tác", "Trạng thái", "Thao tác"], rows, "Đối tác nhà cung cấp và khách hàng có thể cùng tồn tại dưới một DT_Ma, với DT_Loai = Cả hai.")}`;
+    ${tableCard("Danh sách khách hàng", `${customers.length} đối tác`, ["Mã đối tác", "Tên khách hàng", "Số điện thoại", "Địa chỉ", "Loại đối tác", "Trạng thái", "Thao tác"], rows, "Mỗi đối tác chỉ thuộc một loại: Khách hàng hoặc Nhà cung cấp.")}`;
 }
 
 function customerForm(state, id = "") {
   if (!saleRoles.has(role)) return toast("Vai trò hiện tại không được chỉnh sửa hồ sơ khách hàng.", true);
   const customer = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === id);
   const body = `<div class="form-error" id="customer-error"></div><form id="customer-form" data-id="${esc(id)}">
-    <div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" value="${esc(customer?.DT_Ten || "")}" required maxlength="120"></div>
-    <div class="field"><label>Số điện thoại</label><input name="DT_SDT" value="${esc(customer?.DT_SDT || "")}" maxlength="20"></div>
-    <div class="field"><label>Địa chỉ</label><input name="DT_DChi" value="${esc(customer?.DT_DChi || "")}" maxlength="200"></div>
-    <div class="field"><label>Loại đối tác</label><select name="DT_Loai"><option ${customer?.DT_Loai === "Khách hàng" || !customer ? "selected" : ""}>Khách hàng</option><option ${customer?.DT_Loai === "Cả hai" ? "selected" : ""}>Cả hai</option></select></div>
+    <div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" value="${esc(customer?.DT_Ten || "")}" maxlength="120"><small class="field-validation-error" data-field-error="DT_Ten" aria-live="polite"></small></div>
+    <div class="field"><label>Số điện thoại</label><input name="DT_SDT" value="${esc(customer?.DT_SDT || "")}" maxlength="20"><small class="field-validation-error" data-field-error="DT_SDT" aria-live="polite"></small></div>
+    <div class="field"><label>Địa chỉ</label><input name="DT_DChi" value="${esc(customer?.DT_DChi || "")}" maxlength="200"><small class="field-validation-error" data-field-error="DT_DChi" aria-live="polite"></small></div>
+    <div class="field"><label>Loại đối tác</label><select name="DT_Loai"><option ${customer?.DT_Loai === "Khách hàng" || !customer ? "selected" : ""}>Khách hàng</option></select></div>
     <div class="field"><label>Trạng thái</label><select name="DT_TrangThai"><option ${customer?.DT_TrangThai !== "Ngừng hoạt động" ? "selected" : ""}>Hoạt động</option><option ${customer?.DT_TrangThai === "Ngừng hoạt động" ? "selected" : ""}>Ngừng hoạt động</option></select></div></div>
-    <p class="role-note">Không xóa vật lý đối tác đã phát sinh hóa đơn. Khi có số điện thoại trùng nhà cung cấp, hồ sơ được dùng chung và chuyển loại sang Cả hai.</p></form>`;
+    <p class="role-note">Không xóa vật lý đối tác đã phát sinh hóa đơn. Mỗi đối tác chỉ thuộc một loại được chọn ban đầu.</p></form>`;
   openModal(customer ? `Chỉnh sửa ${id}` : "Thêm khách hàng", body, `<button class="button" data-action="close-modal">Hủy</button><button class="button button-primary" form="customer-form" type="submit">Lưu khách hàng</button>`);
 }
 
@@ -1497,7 +1497,7 @@ function revalidateCartForCheckout(state) {
 
 function openCustomerQuickForm() {
   if (!saleRoles.has(role)) return toast("Vai trò hiện tại không được tạo khách hàng.", true);
-  const body = `<div class="form-error" id="customer-error"></div><form id="customer-form"><div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" required maxlength="120"></div><div class="field"><label>Số điện thoại</label><input name="DT_SDT" maxlength="20"></div><div class="field"><label>Địa chỉ</label><input name="DT_DChi" maxlength="200"></div></div></form>`;
+  const body = `<div class="form-error" id="customer-error"></div><form id="customer-form"><div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" maxlength="120"><small class="field-validation-error" data-field-error="DT_Ten" aria-live="polite"></small></div><div class="field"><label>Số điện thoại</label><input name="DT_SDT" maxlength="20"><small class="field-validation-error" data-field-error="DT_SDT" aria-live="polite"></small></div><div class="field"><label>Địa chỉ</label><input name="DT_DChi" maxlength="200"><small class="field-validation-error" data-field-error="DT_DChi" aria-live="polite"></small></div></div></form>`;
   openModal("Tạo khách hàng nhanh", body, `<button class="button" data-action="close-modal">Hủy</button><button class="button button-primary" form="customer-form" type="submit">Lưu khách hàng</button>`);
 }
 
@@ -1513,6 +1513,43 @@ function showError(message, target = "#form-error") {
     node.textContent = message;
     node.classList.add("visible");
   } else toast(message, true);
+}
+
+function setCustomerFieldErrors(form, errors = {}, generalMessage = "") {
+  const fieldNames = new Set();
+  form.querySelectorAll("[data-field-error]").forEach((node) => {
+    const name = node.dataset.fieldError;
+    fieldNames.add(name);
+    const message = errors[name] || "";
+    node.textContent = message;
+    node.classList.toggle("visible", Boolean(message));
+    const field = node.closest(".field");
+    field?.classList.toggle("has-error", Boolean(message));
+    const input = field?.querySelector("input, select");
+    if (input) input.setAttribute("aria-invalid", String(Boolean(message)));
+  });
+  const unbound = Object.entries(errors).filter(([name]) => !fieldNames.has(name)).map(([, message]) => message);
+  const errorNode = form.querySelector("#customer-error");
+  if (errorNode) {
+    const message = [generalMessage, ...unbound].filter(Boolean).join(" ");
+    errorNode.textContent = message;
+    errorNode.classList.toggle("visible", Boolean(message));
+  }
+}
+
+function refreshCustomerValidation(form, changedField = "") {
+  const serverErrors = JSON.parse(form.dataset.serverFieldErrors || "{}");
+  if (changedField) delete serverErrors[changedField];
+  form.dataset.serverFieldErrors = JSON.stringify(serverErrors);
+  form.dataset.serverGeneralError = "";
+  const values = Object.fromEntries(new FormData(form).entries());
+  const localErrors = validatePartnerData({
+    ...values,
+    DT_Ma: form.dataset.id || "",
+    DT_Loai: "Khách hàng",
+    DT_TrangThai: values.DT_TrangThai || "Hoạt động"
+  }, getState().DoiTacKinhDoanh);
+  setCustomerFieldErrors(form, { ...serverErrors, ...localErrors }, form.dataset.serverGeneralError);
 }
 
 function handleClick(event) {
@@ -1757,7 +1794,7 @@ function handleClick(event) {
   else if (action === "view-customer") viewCustomer(state, id);
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   const form = event.target;
   if (form.id === "barcode-form") return handleBarcodeSubmit(event);
   if (form.id === "product-search-form") {
@@ -1815,6 +1852,19 @@ function handleSubmit(event) {
   if (!["payment-form", "customer-form"].includes(form.id)) return;
   event.preventDefault();
   const values = Object.fromEntries(new FormData(form).entries());
+  if (form.id === "customer-form") {
+    form.dataset.validationAttempted = "true";
+    form.dataset.serverFieldErrors = "{}";
+    form.dataset.serverGeneralError = "";
+    const errors = validatePartnerData({
+      ...values,
+      DT_Ma: form.dataset.id || "",
+      DT_Loai: "Khách hàng",
+      DT_TrangThai: values.DT_TrangThai || "Hoạt động"
+    }, getState().DoiTacKinhDoanh);
+    setCustomerFieldErrors(form, errors);
+    if (Object.keys(errors).length) return;
+  }
   try {
     if (form.id === "payment-form") {
       const paymentId = recordPayment(values.BH_Ma, {
@@ -1825,7 +1875,7 @@ function handleSubmit(event) {
       renderContent();
       toast(`Đã ghi nhận giao dịch ${paymentId}.`);
     } else {
-      const customerId = saveCustomer({ ...values, DT_Ma: form.dataset.id || "", role });
+      const customerId = await saveCustomer({ ...values, DT_Ma: form.dataset.id || "", role });
       closeModal();
       if (page === "pos") {
         selectedCustomer = customerId;
@@ -1835,12 +1885,23 @@ function handleSubmit(event) {
       toast(`Đã lưu hồ sơ khách hàng ${customerId}.`);
     }
   } catch (error) {
-    showError(error.message || "Không thể lưu dữ liệu.", form.id === "payment-form" ? "#payment-error" : "#customer-error");
+    if (form.id === "customer-form") {
+      const fieldErrors = error.fieldErrors || {};
+      form.dataset.serverFieldErrors = JSON.stringify(fieldErrors);
+      form.dataset.serverGeneralError = Object.keys(fieldErrors).length ? "" : error.message || "Không thể lưu dữ liệu.";
+      setCustomerFieldErrors(form, fieldErrors, form.dataset.serverGeneralError);
+    } else {
+      showError(error.message || "Không thể lưu dữ liệu.", "#payment-error");
+    }
   }
 }
 
 function handleInput(event) {
   const target = event.target;
+  const customerForm = target.closest("#customer-form");
+  if (customerForm && customerForm.dataset.validationAttempted === "true") {
+    refreshCustomerValidation(customerForm, target.name);
+  }
   if (target.closest("#discount-form")) refreshDiscountPreview();
   if (target.id === "product-search") refreshProductSuggestions();
   if (target.id === "customer-search") refreshCustomerSuggestions();
