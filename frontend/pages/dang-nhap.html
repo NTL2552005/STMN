@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Đăng nhập | Siêu thị mini</title>
+  <link rel="stylesheet" href="../css/style.css">
+  <script type="module" src="../js/pages/auth/login.js"></script>
+</head>
+<body class="auth-page">
+  <main class="auth-card">
+    <a class="brand auth-brand" href="../index.html"><span class="brand-mark">S</span><div><strong>Siêu thị mini</strong><small>Hệ thống quản lý</small></div></a>
+    <h1>Đăng nhập</h1>
+    <p class="auth-description">Sử dụng tài khoản STMN do quản trị viên cấp.</p>
+    <div id="auth-message" class="auth-message" role="alert" hidden></div>
+    <form id="login-form">
+      <label class="auth-field">Tên đăng nhập<input name="username" autocomplete="username" required autofocus></label>
+      <label class="auth-field">Mật khẩu<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="button button-primary auth-submit" type="submit">Đăng nhập</button>
+    </form>
+  </main>
+</body>
+</html>

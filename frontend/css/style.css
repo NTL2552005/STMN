@@ -45,6 +45,18 @@ button { cursor: pointer; }
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 .topbar select { min-width: 155px; }
 .user-role { color: var(--muted); font-size: 11px; }
+.auth-page { display: grid; min-height: 100vh; place-items: center; padding: 24px; }
+.auth-card { width: min(100%, 420px); padding: 30px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 12px 36px rgba(16,24,40,.08); }
+.auth-brand { padding: 0 0 24px; }
+.auth-card h1 { margin: 0; font-size: 23px; }
+.auth-description { margin: 8px 0 20px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+.auth-field { display: flex; flex-direction: column; gap: 7px; margin: 14px 0; color: #475467; font-size: 12px; font-weight: 600; }
+.auth-field input { min-height: 42px; font-size: 14px; }
+.auth-submit { width: 100%; min-height: 40px; margin-top: 8px; font-size: 13px; }
+.auth-message { margin: 0 0 14px; padding: 10px 12px; border: 1px solid #f1c5c2; border-radius: 7px; color: var(--red); background: #fff6f5; font-size: 12px; line-height: 1.5; }
+.auth-role-options { display: grid; gap: 10px; }
+.auth-role-option { min-height: 42px; width: 100%; font-size: 13px; }
+.auth-global-message { position: fixed; top: 12px; right: 12px; z-index: 20; max-width: min(440px, calc(100vw - 24px)); padding: 12px 16px; border: 1px solid #f1c5c2; border-radius: 8px; color: var(--red); background: white; box-shadow: 0 8px 24px rgba(16,24,40,.12); font-size: 12px; }
 .content { max-width: 1500px; margin: 0 auto; padding: 26px 30px 42px; }
 .page-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
 .page-heading h1 { margin: 0; font-size: 22px; letter-spacing: -.03em; }
