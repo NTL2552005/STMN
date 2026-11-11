@@ -5,7 +5,7 @@ import {
 } from "./purchase-order-utils.js";
 
 const OWNER_ROLE = "Chủ cửa hàng";
-const supplierTypes = new Set(["Nhà cung cấp", "Cả hai"]);
+const supplierTypes = new Set(["Nhà cung cấp"]);
 const validDate = (value) => {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ""));
   if (!match) return false;

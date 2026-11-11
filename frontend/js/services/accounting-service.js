@@ -78,7 +78,7 @@ export function getSupplierPayables(DT_Ma = "", state = getState()) {
 function createSupplierDebtInState(state, PN_Ma) {
   const receipt = state.PhieuNhap.find((row) => row.PN_Ma === PN_Ma);
   if (!receipt || receipt.PN_TrangThai !== "Đã xác nhận") throw new Error("Chỉ ghi nhận công nợ từ phiếu nhập đã xác nhận.");
-  if (!receipt.DT_Ma || !state.DoiTacKinhDoanh.some((row) => row.DT_Ma === receipt.DT_Ma && ["Nhà cung cấp", "Cả hai"].includes(row.DT_Loai))) {
+  if (!receipt.DT_Ma || !state.DoiTacKinhDoanh.some((row) => row.DT_Ma === receipt.DT_Ma && row.DT_Loai === "Nhà cung cấp")) {
     throw new Error("Phiếu nhập không có nhà cung cấp hợp lệ.");
   }
   if (!Number.isSafeInteger(receipt.PN_TongTien) || receipt.PN_TongTien < 0) throw new Error("Tổng tiền phiếu nhập không hợp lệ.");

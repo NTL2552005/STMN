@@ -9,23 +9,36 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+import os
+from dotenv import load_dotenv
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
+load_dotenv(BASE_DIR / ".env")
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-=3i(a%io2zm%s87brvwdl=3wa%xbsnt113e^#p4pv(ic@zb1qn'
+SECRET_KEY = os.environ.get(
+    "DJANGO_SECRET_KEY",
+    "stmn-dev-secret-key-local-only-change-me-in-production",
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = []
+_cors_origins = os.environ.get(
+    "STMN_CORS_ALLOWED_ORIGINS",
+    "http://127.0.0.1:5500,http://localhost:5500" if DEBUG else "",
+)
+STMN_CORS_ALLOWED_ORIGINS = tuple(
+    origin.strip().rstrip("/")
+    for origin in _cors_origins.split(",")
+    if origin.strip()
+)
 
 
 # Application definition
@@ -37,30 +50,40 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    "rest_framework",
-    "apps.accounts",
-"apps.catalog",
-"apps.suppliers",
-"apps.purchasing",
-"apps.inventory",
-
-# Developer B
-"apps.customers",
-"apps.shifts",
-"apps.sales",
-"apps.payments",
-"apps.accounting",
-"apps.reports",
+    'corsheaders',
+    'rest_framework',
+    'rest_framework.authtoken',
+    'apps.accounts',
+    'apps.catalog',
+    'apps.partners',
+    'apps.suppliers',
+    'apps.purchasing',
+    'apps.inventory',
+    'apps.customers',
+    'apps.shifts',
+    'apps.sales',
+    'apps.payments',
+    'apps.accounting',
+    'apps.reports',
 ]
 
 MIDDLEWARE = [
+    "config.cors.SimpleCorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+CORS_ALLOWED_ORIGINS = [
+    'http://127.0.0.1:3000',
+    'http://localhost:3000',
+    'http://127.0.0.1:5500',
+    'http://localhost:5500',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -134,3 +157,12 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+}

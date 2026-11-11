@@ -11,8 +11,12 @@ import {
 } from "../../services/supplier-return-service.js";
 import { formatBaseQuantity, getUnitPackage, toBaseQuantity, toBaseUnitPrice } from "../../services/unit-service.js";
 import { escapeHtml as esc, formatCurrency, formatDate, formatNumber } from "../../utils/formatters.js";
+import { canAccessPage, getMockActorCode, requirePageAccess } from "../../services/auth-service.js";
 
 const page = document.body.dataset.page;
+const session = await requirePageAccess("warehouse", page);
+const role = session.role;
+const actorEmployeeCode = getMockActorCode(role) || session.employeeCode;
 const pages = [
   ["overview", "Tổng quan kho", "tong-quan-kho.html", "▦"],
   ["receipts", "Phiếu nhập kho", "phieu-nhap.html", "⇩"],
@@ -25,10 +29,8 @@ const pages = [
   ["expiry", "Hạn sử dụng", "han-su-dung.html", "◷"]
 ];
 const pageTitle = pages.find(([key]) => key === page)?.[1] || "Quản lý kho";
-const roleOptions = ["Chủ cửa hàng", "Nhân viên kho", "Nhân viên kế toán", "Nhân viên bán hàng"];
-const roleEmployees = { "Chủ cửa hàng": "NV001", "Nhân viên kho": "NV002", "Nhân viên kế toán": "NV003", "Nhân viên bán hàng": "NV004" };
+const roleEmployees = { [role]: actorEmployeeCode };
 const supplierReturnReasons = ["Hàng hư hỏng", "Hàng lỗi chất lượng", "Hàng giao sai", "Hàng không đúng quy cách", "Hàng gần hết hạn", "Lý do khác"];
-let role = localStorage.getItem("stmn-kho-demo-role") || "Nhân viên kho";
 let stockMode = "summary";
 let transferTab = "";
 const today = () => new Date().toISOString().slice(0, 10);
@@ -50,7 +52,9 @@ const nameOf = (state, table, key, idField, nameField) => state[table].find((row
 const product = (state, id) => state.HangHoa.find((row) => row.HH_Ma === id);
 const detail = (state, id) => state.PhieuNhapChiTiet.find((row) => row.PNCT_Ma === id);
 const locationName = (state, id) => nameOf(state, "DiaDiem", id, "DD_Ma", "DD_Ten");
-const employeeName = (state, id) => nameOf(state, "NhanVien", id, "NV_Ma", "NV_Ten");
+const employeeName = (state, id) => id === session.employeeCode
+  ? session.user.employee?.NV_Ten || session.user.username
+  : nameOf(state, "NhanVien", id, "NV_Ma", "NV_Ten");
 const supplierName = (state, id) => nameOf(state, "DoiTacKinhDoanh", id, "DT_Ma", "DT_Ten");
 const productName = (state, id) => product(state, id)?.HH_Ten || id || "—";
 const stockQty = (state, locationId, lineId) => state.TonKho.find((row) => row.DD_Ma === locationId && row.PNCT_Ma === lineId)?.TK_SL || 0;
@@ -88,38 +92,40 @@ function optionList(rows, valueField, labelField, selected = "", first = "") {
 function shell() {
   const state = getState();
   const selectedLocation = localStorage.getItem("stmn-kho-demo-location") || "";
-  const activeLink = pages.map(([key, label, file, icon]) => `
+  const activeLink = pages.filter(([key]) => canAccessPage("warehouse", key, role)).map(([key, label, file, icon]) => `
     <a class="nav-link ${page === key ? "active" : ""}" href="${file}" title="${label}">
       <span class="nav-icon">${icon}</span><span class="nav-text">${label}</span>
     </a>`).join("");
   const salesLinks = [
-    ["Tổng quan bán hàng", "tong-quan-ban-hang.html", "▦"],
-    ["Bán hàng tại quầy", "ban-hang.html", "▣"],
-    ["Hóa đơn bán hàng", "hoa-don.html", "▤"],
-    ["Thanh toán", "thanh-toan.html", "＄"],
-    ["Khách hàng", "khach-hang.html", "♙"],
-    ["Công nợ khách hàng", "cong-no-khach-hang.html", "◷"]
-  ].map(([label, file, icon]) => `<a class="nav-link" href="../ban-hang-ke-toan/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+    ["overview", "Tổng quan bán hàng", "tong-quan-ban-hang.html", "▦"],
+    ["pos", "Bán hàng tại quầy", "ban-hang.html", "▣"],
+    ["invoices", "Hóa đơn bán hàng", "hoa-don.html", "▤"],
+    ["payments", "Thanh toán", "thanh-toan.html", "＄"],
+    ["customers", "Khách hàng", "khach-hang.html", "♙"],
+    ["debts", "Công nợ khách hàng", "cong-no-khach-hang.html", "◷"]
+  ].filter(([key]) => canAccessPage("sales", key, role))
+    .map(([, label, file, icon]) => `<a class="nav-link" href="../ban-hang-ke-toan/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
   const accountingLinks = [
-    ["Tổng quan kế toán", "tong-quan-ke-toan.html", "▦"],
-    ["Đối chiếu nhập hàng", "doi-chieu-nhap-hang.html", "⇩"],
-    ["Đối chiếu chứng từ kho", "doi-chieu-chung-tu-kho.html", "⇄"],
-    ["Công nợ nhà cung cấp", "cong-no-ncc.html", "◷"],
-    ["Thanh toán NCC", "thanh-toan-ncc.html", "＄"],
-    ["Phiếu thu", "phieu-thu.html", "＋"],
-    ["Phiếu chi", "phieu-chi.html", "－"],
-    ["Đối soát doanh thu", "doi-soat-doanh-thu.html", "▤"],
-    ["Đối soát thanh toán", "doi-soat-thanh-toan.html", "✓"],
-    ["Báo cáo kế toán", "bao-cao-ke-toan.html", "▥"]
-  ].map(([label, file, icon]) => `<a class="nav-link" href="../ban-hang-ke-toan/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+    ["accounting-overview", "Tổng quan kế toán", "tong-quan-ke-toan.html", "▦"],
+    ["purchase-reconciliation", "Đối chiếu nhập hàng", "doi-chieu-nhap-hang.html", "⇩"],
+    ["stock-reconciliation", "Đối chiếu chứng từ kho", "doi-chieu-chung-tu-kho.html", "⇄"],
+    ["supplier-debts", "Công nợ nhà cung cấp", "cong-no-ncc.html", "◷"],
+    ["supplier-payments", "Thanh toán NCC", "thanh-toan-ncc.html", "＄"],
+    ["receipts", "Phiếu thu", "phieu-thu.html", "＋"],
+    ["expenses", "Phiếu chi", "phieu-chi.html", "－"],
+    ["revenue-reconciliation", "Đối soát doanh thu", "doi-soat-doanh-thu.html", "▤"],
+    ["payment-reconciliation", "Đối soát thanh toán", "doi-soat-thanh-toan.html", "✓"],
+    ["reports", "Báo cáo kế toán", "bao-cao-ke-toan.html", "▥"]
+  ].filter(([key]) => canAccessPage("accounting", key, role))
+    .map(([, label, file, icon]) => `<a class="nav-link" href="../ban-hang-ke-toan/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
   document.querySelector("#app").innerHTML = `
     <div class="app-shell">
       <aside class="sidebar">
         <a class="brand" href="tong-quan-kho.html"><span class="brand-mark">S</span><div><strong>Siêu thị mini</strong><small>Hệ thống quản lý</small></div></a>
-        <a class="nav-link" href="../chu-cua-hang/tong-quan.html"><span class="nav-icon">⌂</span><span class="nav-text">Chủ cửa hàng</span></a>
+        ${canAccessPage("owner", "overview", role) ? '<a class="nav-link" href="../chu-cua-hang/tong-quan.html"><span class="nav-icon">⌂</span><span class="nav-text">Chủ cửa hàng</span></a>' : ""}
         <div class="nav-label">Phân hệ kho</div>${activeLink}
-        <div class="module-label">Bán hàng</div>${salesLinks}
-        <div class="module-label">Kế toán</div>${accountingLinks}
+        ${salesLinks ? `<div class="module-label">Bán hàng</div>${salesLinks}` : ""}
+        ${accountingLinks ? `<div class="module-label">Kế toán</div>${accountingLinks}` : ""}
         <div class="sidebar-bottom">Bản demo giao diện kho<br>Mock data · lưu trên trình duyệt</div>
       </aside>
       <main class="main-area">
@@ -130,8 +136,8 @@ function shell() {
               <option value="" ${selectedLocation === "" ? "selected" : ""}>Tất cả địa điểm</option>
               ${optionList(state.DiaDiem, "DD_Ma", "DD_Ten", selectedLocation)}
             </select>
-            <select id="global-role" aria-label="Vai trò demo">${roleOptions.map((name) => `<option ${role === name ? "selected" : ""}>${name}</option>`).join("")}</select>
-            <span class="user-role">${employeeName(state, roleEmployees[role])}</span>
+            <span class="user-role">${esc(session.user.employee?.NV_Ten || session.user.username)} · ${esc(role)}</span>
+            <button class="button button-small" data-auth-logout>Đăng xuất</button>
             <button class="button button-small" data-action="reset">Khôi phục demo</button>
           </div>
         </header>
@@ -451,7 +457,7 @@ function openSupplierReturnForm(state, returnId = "") {
   if (returnId && (!doc || doc.TRNCC_TrangThai !== SUPPLIER_RETURN_STATUSES.draft)) {
     return toast("Chỉ chỉnh sửa được phiếu trả ở trạng thái Nháp.", true);
   }
-  const suppliers = state.DoiTacKinhDoanh.filter((row) => ["Nhà cung cấp", "Cả hai"].includes(row.DT_Loai));
+  const suppliers = state.DoiTacKinhDoanh.filter((row) => row.DT_Loai === "Nhà cung cấp");
   const activeLocations = state.DiaDiem.filter((row) => row.DD_TrangThai === "Hoạt động");
   const preferredLocation = localStorage.getItem("stmn-kho-demo-location");
   const defaultLocation = doc?.DD_Ma || (activeLocations.some((row) => row.DD_Ma === preferredLocation) ? preferredLocation : activeLocations[0]?.DD_Ma || "");
@@ -790,7 +796,7 @@ function openReceiptForm(state, receiptId = "", preferredOrderId = "") {
     ...(receipt.DH_Ma ? orderLineProgress(state, receipt.DH_Ma, line.HH_Ma, receiptId) : {})
   })) : selectedOrderId ? orderLines(state, selectedOrderId) : [];
   if (selectedOrderId && !lines.length) return toast("Đơn này không còn dòng hàng nào khả dụng để nhận.", true);
-  const vendors = state.DoiTacKinhDoanh.filter((row) => ["Nhà cung cấp", "Cả hai"].includes(row.DT_Loai));
+  const vendors = state.DoiTacKinhDoanh.filter((row) => row.DT_Loai === "Nhà cung cấp");
   const orders = getPurchaseOrderSummary(state).filter((summary) => (
     [PURCHASE_ORDER_STATUSES.waiting, PURCHASE_ORDER_STATUSES.partial].includes(summary.status)
     && (summary.order.DH_Ma === selectedOrderId || summary.lines.some((line) => line.availableToReceive > 0))
@@ -1310,10 +1316,6 @@ function handleChange(event) {
     const lineSelect = document.querySelector("#ledger-line");
     const lines = getState().PhieuNhapChiTiet.filter((row) => row.HH_Ma === target.value);
     lineSelect.innerHTML = `<option value="">Tất cả dòng nhập của sản phẩm</option>${lines.map((row) => `<option value="${esc(row.PNCT_Ma)}">${esc(row.PNCT_Ma)} · ${esc(row.PN_Ma)} · HSD ${esc(formatDate(row.PNCT_HSD))}</option>`).join("")}`;
-  } else if (target.id === "global-role") {
-    role = target.value;
-    localStorage.setItem("stmn-kho-demo-role", role);
-    renderContent();
   } else if (target.id === "global-location") {
     localStorage.setItem("stmn-kho-demo-location", target.value);
     renderContent();

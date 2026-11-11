@@ -246,7 +246,7 @@ export function createDraftInvoice({ BH_Ma = "", DD_Ma, NV_Ma, DT_Ma = null, lin
   try {
     return runDemoTransaction((state) => {
       if (DT_Ma) {
-        const customer = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === DT_Ma && ["Khách hàng", "Cả hai"].includes(row.DT_Loai) && row.DT_TrangThai === "Hoạt động");
+        const customer = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === DT_Ma && row.DT_Loai === "Khách hàng" && row.DT_TrangThai === "Hoạt động");
         if (!customer) throw new Error("Khách hàng không hợp lệ hoặc đã ngừng hoạt động.");
       }
       const invoiceLines = allocateInvoiceLines(state, DD_Ma, lines, dateOnly);
@@ -326,7 +326,7 @@ export function createInvoice({ BH_Ma = "", DD_Ma, NV_Ma, DT_Ma = null, lines, p
       if (!sellingRoles.has(role)) throw new Error("Vai trò hiện tại không được xác nhận hóa đơn bán hàng.");
       if (!DD_Ma || !NV_Ma || !Array.isArray(lines) || !lines.length) throw new Error("Hóa đơn cần địa điểm, nhân viên và ít nhất một mặt hàng.");
       if (DT_Ma) {
-        const customer = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === DT_Ma && ["Khách hàng", "Cả hai"].includes(row.DT_Loai) && row.DT_TrangThai === "Hoạt động");
+        const customer = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === DT_Ma && row.DT_Loai === "Khách hàng" && row.DT_TrangThai === "Hoạt động");
         if (!customer) throw new Error("Khách hàng không hợp lệ hoặc đã ngừng hoạt động.");
       }
       const date = new Date().toISOString();

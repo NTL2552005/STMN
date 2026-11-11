@@ -1,25 +1,29 @@
 import { getState, resetDemoData } from "../../services/kho-service.js";
 import { getActivePrice, getAvailableStock, getInventoryPosition, getValidSaleLots } from "../../services/inventory-service.js";
 import { confirmPayment, createDraftInvoice, createInvoice, deleteDraftInvoice, getDraftInvoiceMetadata, getInvoiceOutstanding, getInvoicePaid, recordPayment, setPaymentStatus } from "../../services/sales-service.js";
-import { listCustomers, saveCustomer } from "../../services/customer-service.js";
+import { listCustomers, saveCustomer, validatePartnerData } from "../../services/customer-service.js";
 import {
   calculateCashShift, getCashShift, getCashShifts, getOpenCashShift, openCashShift,
   respondCashShiftExplanation, submitCashShift
 } from "../../services/cash-register-service.js";
 import { getUnitPackage, toBaseQuantity } from "../../services/unit-service.js";
 import { escapeHtml as esc, formatCurrency, formatDate, formatNumber } from "../../utils/formatters.js";
+import { canAccessPage, getMockActorCode, requirePageAccess } from "../../services/auth-service.js";
 
 const page = document.body.dataset.page;
-const roleOptions = ["Chủ cửa hàng", "Nhân viên kho", "Nhân viên kế toán", "Nhân viên bán hàng"];
-const roleEmployees = { "Chủ cửa hàng": "NV001", "Nhân viên kho": "NV002", "Nhân viên kế toán": "NV003", "Nhân viên bán hàng": "NV004" };
+const session = await requirePageAccess("sales", page);
+const role = session.role;
+const roleEmployees = { [role]: getMockActorCode(role) || session.employeeCode };
 const warehousePages = [
-  ["Tổng quan kho", "tong-quan-kho.html", "▦"],
-  ["Phiếu nhập kho", "phieu-nhap.html", "⇩"],
-  ["Theo dõi tồn kho", "ton-kho.html", "▤"],
-  ["Xuất chuyển nội bộ", "xuat-chuyen-noi-bo.html", "⇄"],
-  ["Kiểm kê kho", "kiem-ke-kho.html", "✓"],
-  ["Biến động kho", "bien-dong-kho.html", "↗"],
-  ["Hạn sử dụng", "han-su-dung.html", "◷"]
+  ["overview", "Tổng quan kho", "tong-quan-kho.html", "▦"],
+  ["receipts", "Phiếu nhập kho", "phieu-nhap.html", "⇩"],
+  ["stock", "Theo dõi tồn kho", "ton-kho.html", "▤"],
+  ["transfers", "Xuất chuyển nội bộ", "xuat-chuyen-noi-bo.html", "⇄"],
+  ["returns", "Trả hàng NCC", "tra-hang-ncc.html", "↩"],
+  ["counts", "Kiểm kê kho", "kiem-ke-kho.html", "✓"],
+  ["ledger", "Thẻ kho", "the-kho.html", "▥"],
+  ["movements", "Biến động kho", "bien-dong-kho.html", "↗"],
+  ["expiry", "Hạn sử dụng", "han-su-dung.html", "◷"]
 ];
 const salesPages = [
   ["overview", "Tổng quan bán hàng", "tong-quan-ban-hang.html", "▦"],
@@ -31,21 +35,19 @@ const salesPages = [
   ["debts", "Công nợ khách hàng", "cong-no-khach-hang.html", "◷"]
 ];
 const accountingPages = [
-  ["Tổng quan kế toán", "tong-quan-ke-toan.html", "▦"],
-  ["Đối chiếu nhập hàng", "doi-chieu-nhap-hang.html", "⇩"],
-  ["Đối chiếu chứng từ kho", "doi-chieu-chung-tu-kho.html", "⇄"],
-  ["Công nợ nhà cung cấp", "cong-no-ncc.html", "◷"],
-  ["Thanh toán NCC", "thanh-toan-ncc.html", "＄"],
-  ["Phiếu thu", "phieu-thu.html", "＋"],
-  ["Phiếu chi", "phieu-chi.html", "－"],
-  ["Đối soát doanh thu", "doi-soat-doanh-thu.html", "▤"],
-  ["Đối soát thanh toán", "doi-soat-thanh-toan.html", "✓"],
-  ["Đối soát ca bán hàng", "doi-soat-ca-ban-hang.html", "◷"],
-  ["Báo cáo kế toán", "bao-cao-ke-toan.html", "▥"]
+  ["accounting-overview", "Tổng quan kế toán", "tong-quan-ke-toan.html", "▦"],
+  ["purchase-reconciliation", "Đối chiếu nhập hàng", "doi-chieu-nhap-hang.html", "⇩"],
+  ["stock-reconciliation", "Đối chiếu chứng từ kho", "doi-chieu-chung-tu-kho.html", "⇄"],
+  ["supplier-debts", "Công nợ nhà cung cấp", "cong-no-ncc.html", "◷"],
+  ["supplier-payments", "Thanh toán NCC", "thanh-toan-ncc.html", "＄"],
+  ["receipts", "Phiếu thu", "phieu-thu.html", "＋"],
+  ["expenses", "Phiếu chi", "phieu-chi.html", "－"],
+  ["revenue-reconciliation", "Đối soát doanh thu", "doi-soat-doanh-thu.html", "▤"],
+  ["payment-reconciliation", "Đối soát thanh toán", "doi-soat-thanh-toan.html", "✓"],
+  ["cash-shift-reconciliation", "Đối soát ca bán hàng", "doi-soat-ca-ban-hang.html", "◷"],
+  ["reports", "Báo cáo kế toán", "bao-cao-ke-toan.html", "▥"]
 ];
 const pageTitle = salesPages.find(([key]) => key === page)?.[1] || "Bán hàng";
-const roleEmployeesById = Object.fromEntries(Object.entries(roleEmployees).map(([key, value]) => [value, key]));
-let role = localStorage.getItem("stmn-kho-demo-role") || "Nhân viên bán hàng";
 let locationId = localStorage.getItem("stmn-kho-demo-sales-location") || "";
 let cart = new Map();
 let selectedCustomer = "";
@@ -71,7 +73,9 @@ const itemById = (state, id) => state.HangHoa.find((row) => row.HH_Ma === id);
 const itemName = (state, id) => itemById(state, id)?.HH_Ten || id || "—";
 const partnerName = (state, id) => state.DoiTacKinhDoanh.find((row) => row.DT_Ma === id)?.DT_Ten || "Khách lẻ";
 const locationName = (state, id) => state.DiaDiem.find((row) => row.DD_Ma === id)?.DD_Ten || "—";
-const employeeName = (state, id) => state.NhanVien.find((row) => row.NV_Ma === id)?.NV_Ten || "—";
+const employeeName = (state, id) => id === session.employeeCode
+  ? session.user.employee?.NV_Ten || session.user.username
+  : state.NhanVien.find((row) => row.NV_Ma === id)?.NV_Ten || "—";
 const invoiceLines = (state, id) => state.HoaDonBanHangChiTiet.filter((row) => row.BH_Ma === id);
 const cartKey = (HH_Ma, unitFactor = 1) => `${HH_Ma}::${unitFactor}`;
 const cartBaseQuantity = (row) => row.quantity * (row.unitFactor || 1);
@@ -129,16 +133,19 @@ function shell() {
   const stores = state.DiaDiem.filter((row) => row.DD_Loai === "Cửa hàng" && row.DD_TrangThai === "Hoạt động");
   if (!stores.some((row) => row.DD_Ma === locationId)) locationId = stores[0]?.DD_Ma || "";
   localStorage.setItem("stmn-kho-demo-sales-location", locationId);
-  const salesLinks = salesPages.map(([key, label, file, icon]) => `<a class="nav-link ${page === key ? "active" : ""}" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
-  const accountingLinks = accountingPages.map(([label, file, icon]) => `<a class="nav-link" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
-  const warehouseLinks = warehousePages.map(([label, file, icon]) => `<a class="nav-link" href="../kho/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+  const salesLinks = salesPages.filter(([key]) => canAccessPage("sales", key, role))
+    .map(([key, label, file, icon]) => `<a class="nav-link ${page === key ? "active" : ""}" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+  const accountingLinks = accountingPages.filter(([key]) => canAccessPage("accounting", key, role))
+    .map(([, label, file, icon]) => `<a class="nav-link" href="${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
+  const warehouseLinks = warehousePages.filter(([key]) => canAccessPage("warehouse", key, role))
+    .map(([, label, file, icon]) => `<a class="nav-link" href="../kho/${file}" title="${label}"><span class="nav-icon">${icon}</span><span class="nav-text">${label}</span></a>`).join("");
   document.querySelector("#app").innerHTML = `<div class="app-shell">
     <aside class="sidebar">
       <a class="brand" href="tong-quan-ban-hang.html"><span class="brand-mark">S</span><div><strong>Siêu thị mini</strong><small>Hệ thống quản lý</small></div></a>
-      <a class="nav-link" href="../chu-cua-hang/tong-quan.html"><span class="nav-icon">⌂</span><span class="nav-text">Chủ cửa hàng</span></a>
+      ${canAccessPage("owner", "overview", role) ? '<a class="nav-link" href="../chu-cua-hang/tong-quan.html"><span class="nav-icon">⌂</span><span class="nav-text">Chủ cửa hàng</span></a>' : ""}
       <div class="nav-label">Bán hàng</div>${salesLinks}
-      <div class="module-label">Kế toán</div>${accountingLinks}
-      <div class="module-label">Quản lý kho</div>${warehouseLinks}
+      ${accountingLinks ? `<div class="module-label">Kế toán</div>${accountingLinks}` : ""}
+      ${warehouseLinks ? `<div class="module-label">Quản lý kho</div>${warehouseLinks}` : ""}
       <div class="sidebar-bottom">Dữ liệu kho và POS dùng chung<br>Mock data · lưu trên trình duyệt</div>
     </aside>
     <main class="main-area">
@@ -146,8 +153,8 @@ function shell() {
         <div><div class="topbar-title">${pageTitle}</div><div class="topbar-subtitle">Bán hàng tại quầy · Bản mô phỏng nghiệp vụ</div></div>
         <div class="topbar-actions">
           <select id="sales-location" aria-label="Địa điểm bán">${options(stores, "DD_Ma", "DD_Ten", locationId)}</select>
-          <select id="sales-role" aria-label="Vai trò demo">${roleOptions.map((name) => `<option ${role === name ? "selected" : ""}>${name}</option>`).join("")}</select>
-          <span class="user-role">${esc(employeeName(state, roleEmployees[role]))}</span>
+          <span class="user-role">${esc(session.user.employee?.NV_Ten || session.user.username)} · ${esc(role)}</span>
+          <button class="button button-small" data-auth-logout>Đăng xuất</button>
           <button class="button button-small" data-action="reset">Khôi phục demo</button>
         </div>
       </header>
@@ -1255,19 +1262,19 @@ function renderCustomers(state) {
     <td class="cell-primary">${esc(row.DT_Ma)}</td><td>${esc(row.DT_Ten)}</td><td>${esc(row.DT_SDT || "—")}</td><td>${esc(row.DT_DChi || "—")}</td><td>${esc(row.DT_Loai)}</td><td>${badge(row.DT_TrangThai)}</td><td><div class="inline-actions"><button class="button button-small" data-action="view-customer" data-id="${esc(row.DT_Ma)}">Hồ sơ</button>${saleRoles.has(role) ? `<button class="button button-small" data-action="edit-customer" data-id="${esc(row.DT_Ma)}">Sửa</button>` : ""}</div></td></tr>`).join("");
   return `${heading("Khách hàng", "Quản lý khách hàng từ DoiTacKinhDoanh; không tạo bảng KhachHang riêng.", saleRoles.has(role) ? `<button class="button button-primary" data-action="new-customer">＋ Thêm khách hàng</button>` : "")}
     ${filters([searchFilter("Tìm mã / tên / số điện thoại"), selectFilter("status", "Trạng thái", [["Hoạt động", "Hoạt động"], ["Ngừng hoạt động", "Ngừng hoạt động"]])])}
-    ${tableCard("Danh sách khách hàng", `${customers.length} đối tác`, ["Mã đối tác", "Tên khách hàng", "Số điện thoại", "Địa chỉ", "Loại đối tác", "Trạng thái", "Thao tác"], rows, "Đối tác nhà cung cấp và khách hàng có thể cùng tồn tại dưới một DT_Ma, với DT_Loai = Cả hai.")}`;
+    ${tableCard("Danh sách khách hàng", `${customers.length} đối tác`, ["Mã đối tác", "Tên khách hàng", "Số điện thoại", "Địa chỉ", "Loại đối tác", "Trạng thái", "Thao tác"], rows, "Mỗi đối tác chỉ thuộc một loại: Khách hàng hoặc Nhà cung cấp.")}`;
 }
 
 function customerForm(state, id = "") {
   if (!saleRoles.has(role)) return toast("Vai trò hiện tại không được chỉnh sửa hồ sơ khách hàng.", true);
   const customer = state.DoiTacKinhDoanh.find((row) => row.DT_Ma === id);
   const body = `<div class="form-error" id="customer-error"></div><form id="customer-form" data-id="${esc(id)}">
-    <div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" value="${esc(customer?.DT_Ten || "")}" required maxlength="120"></div>
-    <div class="field"><label>Số điện thoại</label><input name="DT_SDT" value="${esc(customer?.DT_SDT || "")}" maxlength="20"></div>
-    <div class="field"><label>Địa chỉ</label><input name="DT_DChi" value="${esc(customer?.DT_DChi || "")}" maxlength="200"></div>
-    <div class="field"><label>Loại đối tác</label><select name="DT_Loai"><option ${customer?.DT_Loai === "Khách hàng" || !customer ? "selected" : ""}>Khách hàng</option><option ${customer?.DT_Loai === "Cả hai" ? "selected" : ""}>Cả hai</option></select></div>
+    <div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" value="${esc(customer?.DT_Ten || "")}" maxlength="120"><small class="field-validation-error" data-field-error="DT_Ten" aria-live="polite"></small></div>
+    <div class="field"><label>Số điện thoại</label><input name="DT_SDT" value="${esc(customer?.DT_SDT || "")}" maxlength="20"><small class="field-validation-error" data-field-error="DT_SDT" aria-live="polite"></small></div>
+    <div class="field"><label>Địa chỉ</label><input name="DT_DChi" value="${esc(customer?.DT_DChi || "")}" maxlength="200"><small class="field-validation-error" data-field-error="DT_DChi" aria-live="polite"></small></div>
+    <div class="field"><label>Loại đối tác</label><select name="DT_Loai"><option ${customer?.DT_Loai === "Khách hàng" || !customer ? "selected" : ""}>Khách hàng</option></select></div>
     <div class="field"><label>Trạng thái</label><select name="DT_TrangThai"><option ${customer?.DT_TrangThai !== "Ngừng hoạt động" ? "selected" : ""}>Hoạt động</option><option ${customer?.DT_TrangThai === "Ngừng hoạt động" ? "selected" : ""}>Ngừng hoạt động</option></select></div></div>
-    <p class="role-note">Không xóa vật lý đối tác đã phát sinh hóa đơn. Khi có số điện thoại trùng nhà cung cấp, hồ sơ được dùng chung và chuyển loại sang Cả hai.</p></form>`;
+    <p class="role-note">Không xóa vật lý đối tác đã phát sinh hóa đơn. Mỗi đối tác chỉ thuộc một loại được chọn ban đầu.</p></form>`;
   openModal(customer ? `Chỉnh sửa ${id}` : "Thêm khách hàng", body, `<button class="button" data-action="close-modal">Hủy</button><button class="button button-primary" form="customer-form" type="submit">Lưu khách hàng</button>`);
 }
 
@@ -1497,7 +1504,7 @@ function revalidateCartForCheckout(state) {
 
 function openCustomerQuickForm() {
   if (!saleRoles.has(role)) return toast("Vai trò hiện tại không được tạo khách hàng.", true);
-  const body = `<div class="form-error" id="customer-error"></div><form id="customer-form"><div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" required maxlength="120"></div><div class="field"><label>Số điện thoại</label><input name="DT_SDT" maxlength="20"></div><div class="field"><label>Địa chỉ</label><input name="DT_DChi" maxlength="200"></div></div></form>`;
+  const body = `<div class="form-error" id="customer-error"></div><form id="customer-form"><div class="form-grid two"><div class="field"><label>Tên khách hàng *</label><input name="DT_Ten" maxlength="120"><small class="field-validation-error" data-field-error="DT_Ten" aria-live="polite"></small></div><div class="field"><label>Số điện thoại</label><input name="DT_SDT" maxlength="20"><small class="field-validation-error" data-field-error="DT_SDT" aria-live="polite"></small></div><div class="field"><label>Địa chỉ</label><input name="DT_DChi" maxlength="200"><small class="field-validation-error" data-field-error="DT_DChi" aria-live="polite"></small></div></div></form>`;
   openModal("Tạo khách hàng nhanh", body, `<button class="button" data-action="close-modal">Hủy</button><button class="button button-primary" form="customer-form" type="submit">Lưu khách hàng</button>`);
 }
 
@@ -1513,6 +1520,43 @@ function showError(message, target = "#form-error") {
     node.textContent = message;
     node.classList.add("visible");
   } else toast(message, true);
+}
+
+function setCustomerFieldErrors(form, errors = {}, generalMessage = "") {
+  const fieldNames = new Set();
+  form.querySelectorAll("[data-field-error]").forEach((node) => {
+    const name = node.dataset.fieldError;
+    fieldNames.add(name);
+    const message = errors[name] || "";
+    node.textContent = message;
+    node.classList.toggle("visible", Boolean(message));
+    const field = node.closest(".field");
+    field?.classList.toggle("has-error", Boolean(message));
+    const input = field?.querySelector("input, select");
+    if (input) input.setAttribute("aria-invalid", String(Boolean(message)));
+  });
+  const unbound = Object.entries(errors).filter(([name]) => !fieldNames.has(name)).map(([, message]) => message);
+  const errorNode = form.querySelector("#customer-error");
+  if (errorNode) {
+    const message = [generalMessage, ...unbound].filter(Boolean).join(" ");
+    errorNode.textContent = message;
+    errorNode.classList.toggle("visible", Boolean(message));
+  }
+}
+
+function refreshCustomerValidation(form, changedField = "") {
+  const serverErrors = JSON.parse(form.dataset.serverFieldErrors || "{}");
+  if (changedField) delete serverErrors[changedField];
+  form.dataset.serverFieldErrors = JSON.stringify(serverErrors);
+  form.dataset.serverGeneralError = "";
+  const values = Object.fromEntries(new FormData(form).entries());
+  const localErrors = validatePartnerData({
+    ...values,
+    DT_Ma: form.dataset.id || "",
+    DT_Loai: "Khách hàng",
+    DT_TrangThai: values.DT_TrangThai || "Hoạt động"
+  }, getState().DoiTacKinhDoanh);
+  setCustomerFieldErrors(form, { ...serverErrors, ...localErrors }, form.dataset.serverGeneralError);
 }
 
 function handleClick(event) {
@@ -1757,7 +1801,7 @@ function handleClick(event) {
   else if (action === "view-customer") viewCustomer(state, id);
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   const form = event.target;
   if (form.id === "barcode-form") return handleBarcodeSubmit(event);
   if (form.id === "product-search-form") {
@@ -1815,6 +1859,19 @@ function handleSubmit(event) {
   if (!["payment-form", "customer-form"].includes(form.id)) return;
   event.preventDefault();
   const values = Object.fromEntries(new FormData(form).entries());
+  if (form.id === "customer-form") {
+    form.dataset.validationAttempted = "true";
+    form.dataset.serverFieldErrors = "{}";
+    form.dataset.serverGeneralError = "";
+    const errors = validatePartnerData({
+      ...values,
+      DT_Ma: form.dataset.id || "",
+      DT_Loai: "Khách hàng",
+      DT_TrangThai: values.DT_TrangThai || "Hoạt động"
+    }, getState().DoiTacKinhDoanh);
+    setCustomerFieldErrors(form, errors);
+    if (Object.keys(errors).length) return;
+  }
   try {
     if (form.id === "payment-form") {
       const paymentId = recordPayment(values.BH_Ma, {
@@ -1825,7 +1882,7 @@ function handleSubmit(event) {
       renderContent();
       toast(`Đã ghi nhận giao dịch ${paymentId}.`);
     } else {
-      const customerId = saveCustomer({ ...values, DT_Ma: form.dataset.id || "", role });
+      const customerId = await saveCustomer({ ...values, DT_Ma: form.dataset.id || "", role });
       closeModal();
       if (page === "pos") {
         selectedCustomer = customerId;
@@ -1835,12 +1892,23 @@ function handleSubmit(event) {
       toast(`Đã lưu hồ sơ khách hàng ${customerId}.`);
     }
   } catch (error) {
-    showError(error.message || "Không thể lưu dữ liệu.", form.id === "payment-form" ? "#payment-error" : "#customer-error");
+    if (form.id === "customer-form") {
+      const fieldErrors = error.fieldErrors || {};
+      form.dataset.serverFieldErrors = JSON.stringify(fieldErrors);
+      form.dataset.serverGeneralError = Object.keys(fieldErrors).length ? "" : error.message || "Không thể lưu dữ liệu.";
+      setCustomerFieldErrors(form, fieldErrors, form.dataset.serverGeneralError);
+    } else {
+      showError(error.message || "Không thể lưu dữ liệu.", "#payment-error");
+    }
   }
 }
 
 function handleInput(event) {
   const target = event.target;
+  const customerForm = target.closest("#customer-form");
+  if (customerForm && customerForm.dataset.validationAttempted === "true") {
+    refreshCustomerValidation(customerForm, target.name);
+  }
   if (target.closest("#discount-form")) refreshDiscountPreview();
   if (target.id === "product-search") refreshProductSuggestions();
   if (target.id === "customer-search") refreshCustomerSuggestions();
@@ -1921,28 +1989,6 @@ function handleChange(event) {
       cameraProcessing = false;
       startCameraScanner(session);
     });
-  } else if (target.id === "sales-role") {
-    const nextRole = target.value;
-    const activeShift = getOpenCashShift(roleEmployees[role]);
-    if (activeShift && roleEmployees[nextRole] !== roleEmployees[role]
-      && !confirm(`Ca ${activeShift.Ca_Ma} vẫn đang mở. Ca sẽ được giữ nguyên và bạn cần quay lại đúng nhân viên để kết ca. Tiếp tục đổi vai trò?`)) {
-      target.value = role;
-      return;
-    }
-    if (cart.size) {
-      if (confirm("Lưu tạm giỏ hàng trước khi đổi vai trò?")) {
-        if (!saveCurrentDraft()) { target.value = role; return; }
-      } else if (confirm("Bỏ giỏ hàng hiện tại và tiếp tục đổi vai trò?")) {
-        cart.clear();
-        basketDiscount = null;
-        activeDraftId = "";
-        selectedCustomer = "";
-      } else { target.value = role; return; }
-    }
-    role = nextRole;
-    localStorage.setItem("stmn-kho-demo-role", role);
-    document.querySelector(".user-role").textContent = employeeName(getState(), roleEmployees[role]);
-    renderContent();
   } else if (target.id === "sales-location") {
     const nextLocation = target.value;
     const activeShift = getOpenCashShift(roleEmployees[role]);
