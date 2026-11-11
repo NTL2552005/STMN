@@ -1,13 +1,9 @@
 import { getState, runDemoTransaction } from "./kho-service.js";
+import { authenticatedApiRequest } from "./auth-service.js";
 
 const customerTypes = new Set(["Khách hàng"]);
 const partnerTypes = new Set(["Khách hàng", "Nhà cung cấp"]);
 const partnerStatuses = new Set(["Hoạt động", "Ngừng hoạt động"]);
-
-function partnerApiUrl(id = "") {
-  const origin = `${window.location.protocol}//${window.location.hostname}:8000`;
-  return `${origin}/api/customers/partners/${id ? `${encodeURIComponent(id)}/` : ""}`;
-}
 
 function validationError(fieldErrors) {
   const error = new Error(Object.values(fieldErrors).join(" "));
@@ -40,37 +36,19 @@ export function validatePartnerData(input, partners = []) {
   return errors;
 }
 
-async function requestPartner(url, options, allowNotFound = false) {
-  let response;
+async function requestPartner(path, options, allowNotFound = false) {
   try {
-    response = await fetch(url, options);
-  } catch (cause) {
-    const error = new Error("Không kết nối được Backend. Kiểm tra Django server rồi thử lại.");
-    error.cause = cause;
-    throw error;
-  }
-
-  if (allowNotFound && response.status === 404) return null;
-
-  let payload;
-  try {
-    payload = await response.json();
-  } catch (cause) {
-    throw new Error(`Backend trả về phản hồi không hợp lệ (HTTP ${response.status}).`);
-  }
-
-  if (!response.ok) {
+    return await authenticatedApiRequest(path, options);
+  } catch (error) {
+    if (allowNotFound && error.status === 404) return null;
     const fieldErrors = {};
-    for (const [field, messages] of Object.entries(payload || {})) {
+    for (const [field, messages] of Object.entries(error.details || {})) {
       if (field === "detail" || field === "non_field_errors") continue;
       fieldErrors[field] = Array.isArray(messages) ? messages.join(" ") : String(messages);
     }
-    const general = payload?.detail || payload?.non_field_errors?.join?.(" ") || "";
-    const error = new Error(general || Object.values(fieldErrors).join(" ") || `Không thể lưu đối tác (HTTP ${response.status}).`);
-    error.fieldErrors = fieldErrors;
+    if (Object.keys(fieldErrors).length) error.fieldErrors = fieldErrors;
     throw error;
   }
-  return payload;
 }
 
 export async function savePartnerRecord(input, partners = []) {
@@ -86,23 +64,20 @@ export async function savePartnerRecord(input, partners = []) {
     DT_STK: String(input.DT_STK ?? "").trim(),
     DT_TrangThai: input.DT_TrangThai
   };
-  const headers = { "Content-Type": "application/json" };
-  const detailUrl = data.DT_Ma ? partnerApiUrl(data.DT_Ma) : "";
+  const detailPath = data.DT_Ma ? `/api/customers/partners/${encodeURIComponent(data.DT_Ma)}/` : "";
 
-  if (detailUrl) {
-    const existing = await requestPartner(detailUrl, { method: "GET" }, true);
+  if (detailPath) {
+    const existing = await requestPartner(detailPath, {}, true);
     if (existing) {
-      return requestPartner(detailUrl, {
+      return requestPartner(detailPath, {
         method: "PATCH",
-        headers,
-        body: JSON.stringify(data)
+        body: data
       });
     }
   }
-  return requestPartner(partnerApiUrl(), {
+  return requestPartner("/api/customers/partners/", {
     method: "POST",
-    headers,
-    body: JSON.stringify(data)
+    body: data
   });
 }
 

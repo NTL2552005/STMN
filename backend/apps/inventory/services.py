@@ -738,6 +738,9 @@ def confirm_supplier_return(return_code, *, confirmed_by):
     if changed != 1:
         raise ValueError("Phiếu trả đã được xử lý bởi một thao tác khác.")
     _replace_supplier_return_lines(supplier_return, lines)
+    from apps.accounting.services import record_supplier_return_adjustment
+
+    record_supplier_return_adjustment(supplier_return.code)
     return get_supplier_return(return_code)
 
 
@@ -1445,6 +1448,9 @@ def confirm_goods_receipt(receipt_code, *, confirmed_by):
 
     if order:
         _sync_order(order.code)
+    from apps.accounting.services import record_supplier_debt_for_receipt
+
+    record_supplier_debt_for_receipt(receipt)
     return receipt
 
 

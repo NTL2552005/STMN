@@ -23,7 +23,6 @@ ALLOWED_ROLES = SELLING_ROLES | CREDIT_ROLES
 ALLOWED_PAYMENT_METHODS = {
     SalePayment.Method.CASH,
     SalePayment.Method.BANK_TRANSFER,
-    SalePayment.Method.QR,
 }
 
 
@@ -204,6 +203,7 @@ def _serialize_invoice(invoice):
         "BH_Ma": invoice.code,
         "DD_Ma": invoice.location.code,
         "NV_Ma": invoice.employee.code,
+        "NV_Ten": invoice.employee.full_name,
         "DT_Ma": invoice.customer.DT_Ma if invoice.customer else None,
         "BH_Ngay": invoice.invoice_date.isoformat(),
         "BH_TrangThai": invoice.status,
@@ -577,6 +577,10 @@ def confirm_invoice(request, code):
                     ),
                 )
                 payments.append(payment)
+                if payment.status == SalePayment.Status.SUCCESS:
+                    from apps.accounting.services import create_sales_receipt
+
+                    create_sales_receipt(payment, employee=employee)
             _save_shift_links(
                 shift,
                 invoice_code=invoice.code,
@@ -707,6 +711,10 @@ def create_payment(request, code):
                 idempotency_key=key or None,
             )
             _save_shift_links(shift, payment_codes=(payment.code,))
+            if payment.status == SalePayment.Status.SUCCESS:
+                from apps.accounting.services import create_sales_receipt
+
+                create_sales_receipt(payment, employee=employee)
         return Response(
             _serialize_payment(payment), status=status.HTTP_201_CREATED
         )
@@ -760,6 +768,9 @@ def confirm_payment(request, code):
                 )
             payment.status = SalePayment.Status.SUCCESS
             payment.save(update_fields=("status", "updated_at"))
+            from apps.accounting.services import create_sales_receipt
+
+            create_sales_receipt(payment, employee=payment.invoice.employee)
         return Response(
             {"TTBH_Ma": payment.code, "TTBH_TrangThai": payment.status}
         )

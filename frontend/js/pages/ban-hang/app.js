@@ -54,7 +54,7 @@ let selectedCustomer = "";
 let paymentMethod = "Tiền mặt";
 let paymentAmount = null;
 let paymentAmountTouched = false;
-let paymentSplits = { "Tiền mặt": 0, "Chuyển khoản": 0, QR: 0 };
+let paymentSplits = { "Tiền mặt": 0, "Chuyển khoản": 0 };
 let allowCredit = false;
 let basketDiscount = null;
 let activeDraftId = "";
@@ -262,13 +262,12 @@ function renderPos(state) {
           <div class="payment-grand-total"><span>Tổng phải thu</span><strong>${formatCurrency(total)}</strong></div>
           <div class="field"><label for="pos-payment-amount">${paymentMethod === "Tiền mặt" ? "Tiền khách đưa (VND)" : "Số tiền thanh toán (VND)"}</label><input id="pos-payment-amount" type="number" min="0" ${paymentMethod === "Tiền mặt" ? "" : `max="${total}"`} step="1" value="${tender}" ${paymentMethod === "Kết hợp" ? "hidden" : ""}></div>
           ${paymentMethod === "Kết hợp" ? `<div class="form-grid"><div class="field"><label for="split-cash">Tiền mặt</label><input id="split-cash" data-payment-split="Tiền mặt" type="number" min="0" max="${total}" step="1" value="${paymentSplits["Tiền mặt"] || 0}"></div>
-            <div class="field"><label for="split-transfer">Chuyển khoản</label><input id="split-transfer" data-payment-split="Chuyển khoản" type="number" min="0" max="${total}" step="1" value="${paymentSplits["Chuyển khoản"] || 0}"></div>
-            <div class="field"><label for="split-qr">QR</label><input id="split-qr" data-payment-split="QR" type="number" min="0" max="${total}" step="1" value="${paymentSplits.QR || 0}"></div></div>` : ""}
+            <div class="field"><label for="split-transfer">Chuyển khoản</label><input id="split-transfer" data-payment-split="Chuyển khoản" type="number" min="0" max="${total}" step="1" value="${paymentSplits["Chuyển khoản"] || 0}"></div></div>` : ""}
           <div class="payment-balance ${tenderInvalid ? "invalid" : ""}"><span>${tenderInvalid ? tenderError : change ? "Tiền thừa" : "Còn phải thu"}</span><strong>${formatCurrency(tenderInvalid && tender > total ? change : due)}</strong></div>
         </div>
         <div class="payment-controls">
-          <div class="field"><label for="pos-method">Phương thức thanh toán</label><select id="pos-method"><option ${paymentMethod === "Tiền mặt" ? "selected" : ""}>Tiền mặt</option><option ${paymentMethod === "Chuyển khoản" ? "selected" : ""}>Chuyển khoản</option><option ${paymentMethod === "QR" ? "selected" : ""}>QR</option><option ${paymentMethod === "Kết hợp" ? "selected" : ""}>Kết hợp</option></select></div>
-          <div class="payment-method-note">${paymentMethod === "Tiền mặt" ? "Chỉ ghi nhận tiền hóa đơn thực thu; tiền thừa trả khách không vào ca." : paymentMethod === "Kết hợp" ? "Tiền mặt được ghi nhận ngay; chuyển khoản/QR chờ xác nhận riêng." : `${paymentMethod} ở trạng thái chờ xác nhận; chưa được tính là tiền đã thu.`}</div>
+          <div class="field"><label for="pos-method">Phương thức thanh toán</label><select id="pos-method"><option ${paymentMethod === "Tiền mặt" ? "selected" : ""}>Tiền mặt</option><option ${paymentMethod === "Chuyển khoản" ? "selected" : ""}>Chuyển khoản</option><option ${paymentMethod === "Kết hợp" ? "selected" : ""}>Kết hợp</option></select></div>
+          <div class="payment-method-note">${paymentMethod === "Tiền mặt" ? "Chỉ ghi nhận tiền hóa đơn thực thu; tiền thừa trả khách không vào ca." : paymentMethod === "Kết hợp" ? "Tiền mặt được ghi nhận ngay; phần chuyển khoản chờ xác nhận riêng." : `${paymentMethod} ở trạng thái chờ xác nhận; chưa được tính là tiền đã thu.`}</div>
           <label class="credit-toggle"><input id="allow-credit" type="checkbox" ${allowCredit ? "checked" : ""} ${cashierCanCredit ? "" : "disabled"}><span>Cho phép khách hàng đã lưu ghi nợ phần còn lại. Chỉ Chủ cửa hàng/Kế toán được xác nhận.<br>${creditWarning}</span></label>
         </div>
         <div class="payment-panel-actions">
@@ -321,7 +320,7 @@ function renderCashShifts(state) {
       ${shiftMetric("Tiền mặt đầu ca", formatCurrency(active.TienMatDauCa))}
       ${shiftMetric("Tiền mặt POS thành công", formatCurrency(currentMetrics.cash))}
       ${shiftMetric("Tiền mặt dự kiến hiện tại", formatCurrency(currentMetrics.expectedCash))}</div>
-      <div class="info-box">Chuyển khoản/QR chờ xác nhận không nằm trong tiền mặt. Các giao dịch thanh toán được gắn trực tiếp với ca demo hiện tại.</div>` : `<div class="info-box">Mỗi nhân viên chỉ có thể duy trì một ca Đang mở. Tiền đầu ca là số dư quỹ, không phải doanh thu hay Phiếu thu.</div>`}
+      <div class="info-box">Chuyển khoản chờ xác nhận không nằm trong tiền mặt. Các giao dịch thanh toán được gắn trực tiếp với ca demo hiện tại.</div>` : `<div class="info-box">Mỗi nhân viên chỉ có thể duy trì một ca Đang mở. Tiền đầu ca là số dư quỹ, không phải doanh thu hay Phiếu thu.</div>`}
     <div class="table-subnote">Dữ liệu ca lưu riêng trong localStorage của trình duyệt; đây là mô phỏng FE, không tạo bảng SQL, bút toán kế toán hoặc phiếu thu tự động.</div>
     ${tableCard("Lịch sử ca của nhân viên", `${shifts.length} ca`, ["Mã ca", "Giờ mở", "Nhân viên", "Cửa hàng", "Giờ kết", "Tiền dự kiến", "Thực đếm", "Chênh lệch", "Trạng thái", "Thao tác"], rows)}`;
 }
@@ -352,7 +351,7 @@ function cashShiftPrintContent(state, shift) {
     <p>Mã ca: <strong>${esc(shift.Ca_Ma)}</strong> · Nhân viên: ${esc(employeeName(state, shift.NV_Ma))} · Cửa hàng: ${esc(locationName(state, shift.DD_Ma))}</p>
     <p>Mở: ${dateTime(shift.GioMo)} · Kết: ${shift.GioDong ? dateTime(shift.GioDong) : "Đang mở"}</p>
     <div class="metric-grid">${shiftMetric("Tổng giá trị hóa đơn", formatCurrency(summary.revenue), `${summary.invoiceCount} hóa đơn`)}
-      ${shiftMetric("Thu tiền mặt", formatCurrency(summary.cash))}${shiftMetric("Thu chuyển khoản", formatCurrency(summary.transfer))}${shiftMetric("Thu QR", formatCurrency(summary.qr))}
+      ${shiftMetric("Thu tiền mặt", formatCurrency(summary.cash))}${shiftMetric("Thu chuyển khoản", formatCurrency(summary.transfer))}
       ${shiftMetric("Tổng thanh toán thành công", formatCurrency(summary.collected), `${summary.paymentCount} giao dịch`)}
       ${shiftMetric("Còn nợ phát sinh", formatCurrency(summary.unpaidFromShiftInvoices))}
       ${shiftMetric("Tiền đầu ca", formatCurrency(shift.TienMatDauCa))}
@@ -920,7 +919,7 @@ function renderOverview(state) {
       <div class="metric-card"><div class="metric-title">Sản phẩm đã bán</div><div class="metric-value">${formatNumber(sold)}</div><div class="metric-caption">Tổng BH_TongSL</div></div>
       <div class="metric-card"><div class="metric-title">Công nợ còn phải thu</div><div class="metric-value">${formatCurrency(debts)}</div><div class="metric-caption">Doanh thu trừ thanh toán thành công</div></div>
     </div>
-    <div class="dashboard-grid">${tableCard("Hóa đơn mới nhất", `${invoices.length} hóa đơn trong kỳ`, ["Mã hóa đơn", "Ngày", "Khách hàng", "Tổng tiền", "Đã thu", "Trạng thái"], newest)}${tableCard("Thanh toán chờ xác nhận", "Chuyển khoản/QR mô phỏng", ["Mã thanh toán", "Hóa đơn", "Khách hàng", "Số tiền", "Phương thức", "Trạng thái"], pending)}</div>
+    <div class="dashboard-grid">${tableCard("Hóa đơn mới nhất", `${invoices.length} hóa đơn trong kỳ`, ["Mã hóa đơn", "Ngày", "Khách hàng", "Tổng tiền", "Đã thu", "Trạng thái"], newest)}${tableCard("Thanh toán chờ xác nhận", "Chuyển khoản mô phỏng", ["Mã thanh toán", "Hóa đơn", "Khách hàng", "Số tiền", "Phương thức", "Trạng thái"], pending)}</div>
     ${tableCard("Hóa đơn còn nợ", "Không cộng PhieuThu vào doanh thu bán hàng", ["Hóa đơn", "Khách hàng", "Tổng tiền", "Đã thu", "Còn nợ"], outstanding)}`;
 }
 
@@ -1236,7 +1235,7 @@ function renderPayments(state) {
   const payments = state.ThanhToanBanHang.slice().sort((a, b) => b.TTBH_Ngay.localeCompare(a.TTBH_Ngay));
   const pendingCount = payments.filter((row) => row.TTBH_TrangThai === "Chờ xác nhận").length;
   return `${heading("Thanh toán bán hàng", "Chỉ giao dịch Thành công được tính là tiền đã thu.", paymentRoles.has(role) ? `<button class="button button-primary" data-action="new-payment">＋ Ghi nhận thanh toán</button>` : "")}
-    <div class="info-box" style="margin-bottom:12px">Chuyển khoản/QR là trạng thái mô phỏng Chờ xác nhận; không có kết nối ngân hàng. Kế toán/chủ cửa hàng phải xác nhận trước khi cộng vào tiền đã thu. ${pendingCount} giao dịch đang chờ.</div>
+    <div class="info-box" style="margin-bottom:12px">Chuyển khoản là trạng thái mô phỏng Chờ xác nhận; không có kết nối ngân hàng. Kế toán/chủ cửa hàng phải xác nhận trước khi cộng vào tiền đã thu. ${pendingCount} giao dịch đang chờ.</div>
     ${filters([searchFilter("Mã thanh toán / hóa đơn / khách"), selectFilter("invoice", "Mã hóa đơn", [...new Set(payments.map((x) => x.BH_Ma))].map((x) => [x, x])), selectFilter("method", "Phương thức", [...new Set(payments.map((x) => x.TTBH_PhuongThuc))].map((x) => [x, x])), dateFilter("from", "Từ ngày"), dateFilter("to", "Đến ngày"), selectFilter("status", "Trạng thái", [...new Set(payments.map((x) => x.TTBH_TrangThai))].map((x) => [x, x]))])}
     ${tableCard("Danh sách giao dịch", `${payments.length} giao dịch`, ["Mã thanh toán", "Mã hóa đơn", "Ngày thanh toán", "Khách hàng", "Số tiền", "Phương thức", "Trạng thái", "Thao tác"], payments.map((row) => paymentRow(state, row)).join(""))}`;
 }
@@ -1251,8 +1250,8 @@ function openPaymentForm(state, invoiceId = "") {
     <div class="form-grid two"><div class="field"><label>Hóa đơn *</label><select name="BH_Ma" required>${invoices.map((row) => `<option value="${esc(row.BH_Ma)}" ${row.BH_Ma === chosen.BH_Ma ? "selected" : ""} data-due="${getInvoiceOutstanding(row.BH_Ma, state)}">${esc(row.BH_Ma)} · ${esc(partnerName(state, row.DT_Ma))} · còn ${formatCurrency(getInvoiceOutstanding(row.BH_Ma, state))}</option>`).join("")}</select></div>
     <div class="field"><label>Số còn phải thu</label><input id="payment-due" disabled value="${formatCurrency(outstanding)}"></div>
     <div class="field"><label>Số tiền thanh toán *</label><input name="amount" type="number" min="1" max="${outstanding}" step="1" required></div>
-    <div class="field"><label>Phương thức *</label><select name="method"><option>Tiền mặt</option><option>Chuyển khoản</option><option>QR</option></select></div></div>
-    <div class="info-box">Chỉ thanh toán tiền mặt được ghi nhận thành công ngay. Chuyển khoản/QR cần đối chiếu xác nhận riêng; không ghi PhieuThu trùng giao dịch này.</div></form>`;
+    <div class="field"><label>Phương thức *</label><select name="method"><option>Tiền mặt</option><option>Chuyển khoản</option></select></div></div>
+    <div class="info-box">Chỉ thanh toán tiền mặt được ghi nhận thành công ngay. Chuyển khoản cần đối chiếu xác nhận riêng; không ghi PhieuThu trùng giao dịch này.</div></form>`;
   openModal("Ghi nhận thanh toán", body, `<button class="button" data-action="close-modal">Hủy</button><button class="button button-primary" form="payment-form" type="submit">Lưu giao dịch</button>`);
 }
 
@@ -1775,7 +1774,7 @@ function handleClick(event) {
       activeDraftId = "";
       paymentAmount = null;
       paymentAmountTouched = false;
-      paymentSplits = { "Tiền mặt": 0, "Chuyển khoản": 0, QR: 0 };
+      paymentSplits = { "Tiền mặt": 0, "Chuyển khoản": 0 };
       allowCredit = false;
       renderContent();
       toast(`Đã xác nhận bán ${invoiceId}. Tồn và biến động kho đã cập nhật.`);

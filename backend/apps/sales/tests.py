@@ -6,6 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.accounts.models import Employee
+from apps.accounting.models import ReceiptVoucher
 from apps.catalog.models import Category, Product, SalePrice
 from apps.customers.models import DoiTacKinhDoanh
 from apps.inventory.models import (
@@ -161,7 +162,7 @@ class SalesCheckoutTests(APITestCase):
                 "payment": {
                     "allocations": [
                         {"method": "Tiền mặt", "amount": amount // 3},
-                        {"method": "QR", "amount": amount - amount // 3},
+                        {"method": "Chuyển khoản", "amount": amount - amount // 3},
                     ]
                 },
                 "role": "Chủ cửa hàng",
@@ -210,6 +211,15 @@ class SalesCheckoutTests(APITestCase):
             set(invoice.payments.values_list("status", flat=True)),
             {SalePayment.Status.SUCCESS, SalePayment.Status.PENDING},
         )
+        transfer_payment = invoice.payments.get(
+            method=SalePayment.Method.BANK_TRANSFER
+        )
+        self.assertEqual(transfer_payment.status, SalePayment.Status.PENDING)
+        cash_payment = invoice.payments.get(method=SalePayment.Method.CASH)
+        cash_receipt = ReceiptVoucher.objects.get(sale_payment=cash_payment)
+        self.assertEqual(cash_receipt.amount, cash_payment.amount)
+        self.assertEqual(cash_receipt.status, ReceiptVoucher.Status.CONFIRMED)
+        self.assertEqual(ReceiptVoucher.objects.count(), 1)
         payment_listing = self.client.get("/api/sales/payments/")
         pending_listing = self.client.get(
             "/api/sales/payments/", {"status": SalePayment.Status.PENDING}
@@ -254,7 +264,7 @@ class SalesCheckoutTests(APITestCase):
         )
         invalid_method = self.client.post(
             f"/api/sales/invoices/{invoice_code}/payments/",
-            {"amount": 1, "method": "Tiền séc"},
+            {"amount": 1, "method": "QR"},
             format="json",
             HTTP_IDEMPOTENCY_KEY="sales-payment-invalid-method",
         )
@@ -412,3 +422,10 @@ class SalesCheckoutTests(APITestCase):
         self.assertEqual(confirmed.status_code, 200, confirmed.data)
         pending.refresh_from_db()
         self.assertEqual(pending.status, SalePayment.Status.SUCCESS)
+        self.assertTrue(
+            ReceiptVoucher.objects.filter(
+                sale_payment=pending,
+                status=ReceiptVoucher.Status.CONFIRMED,
+                amount=pending.amount,
+            ).exists()
+        )

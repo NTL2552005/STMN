@@ -1,3 +1,13 @@
-from django.shortcuts import render
+from apps.sales.views import (
+    close_payment,
+    confirm_payment,
+    create_payment,
+    list_payments,
+)
 
-# Create your views here.
+__all__ = [
+    "close_payment",
+    "confirm_payment",
+    "create_payment",
+    "list_payments",
+]

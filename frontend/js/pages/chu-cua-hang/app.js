@@ -723,15 +723,15 @@ function renderReports() {
       <td class="cell-primary">${esc(shift.Ca_Ma)}</td><td>${esc(employeeName(state, shift.NV_Ma))}</td><td>${esc(locationName(state, shift.DD_Ma))}</td>
       <td>${formatDate(shift.GioMo)}</td><td>${shift.GioDong ? formatDate(shift.GioDong) : "—"}</td>
       <td>${formatNumber(summary.invoiceCount)}</td><td>${formatCurrency(summary.revenue)}</td><td>${formatCurrency(summary.cash)}</td>
-      <td>${formatCurrency(summary.transfer)}</td><td>${formatCurrency(summary.qr)}</td>
+      <td>${formatCurrency(summary.transfer)}</td>
       <td>${formatCurrency(shift.TienMatDuKien ?? summary.expectedCash)}</td>
       <td>${shift.TienMatThucDem === null ? "—" : formatCurrency(shift.TienMatThucDem)}</td>
       <td>${shift.ChenhLech === null ? "—" : formatCurrency(shift.ChenhLech)}</td><td>${summary.pendingPayments.length}</td><td>${statusBadge(shift.TrangThai)}</td>
       <td>${actionButton("view-cash-shift", "Chi tiết / in", shift.Ca_Ma)}</td></tr>`).join("");
     content = `<div class="metric-grid">${metric("Số ca", formatNumber(shifts.length))}${metric("Doanh thu hóa đơn", formatCurrency(total("revenue")))}
       ${metric("Tiền mặt", formatCurrency(total("cash")))}${metric("Chuyển khoản", formatCurrency(total("transfer")))}
-      ${metric("QR", formatCurrency(total("qr")))}${metric("Ca có chênh lệch", formatNumber(varianceCount))}</div>
-      ${tableCard("Báo cáo theo ca", `${shifts.length} ca trong kỳ`, ["Mã ca", "Thu ngân", "Cửa hàng", "Mở ca", "Kết ca", "Hóa đơn", "Doanh thu", "Tiền mặt", "Chuyển khoản", "QR", "Tiền dự kiến", "Thực đếm", "Chênh lệch", "Thanh toán chờ", "Trạng thái", "Báo cáo"], rows,
+      ${metric("Ca có chênh lệch", formatNumber(varianceCount))}</div>
+      ${tableCard("Báo cáo theo ca", `${shifts.length} ca trong kỳ`, ["Mã ca", "Thu ngân", "Cửa hàng", "Mở ca", "Kết ca", "Hóa đơn", "Doanh thu", "Tiền mặt", "Chuyển khoản", "Tiền dự kiến", "Thực đếm", "Chênh lệch", "Thanh toán chờ", "Trạng thái", "Báo cáo"], rows,
         "Báo cáo dựa trên ca demo trong localStorage. Doanh thu hóa đơn, tiền thu và tiền mặt kiểm đếm là các số liệu riêng biệt.")}`;
   } else if (reportTab === "debts") {
     const suppliers = report.debtDetails.map(({ debt, paid, due }) => `<tr><td>${esc(partnerName(state, state.CongNoNCC.find((row) => row.CNNCC_Ma === debt.CNNCC_Ma)?.DT_Ma))}</td><td>${esc(debt.PN_Ma)}</td><td>${formatCurrency(debt.CTNNCC_SoTienNo)}</td><td>${formatCurrency(paid)}</td><td>${formatCurrency(due)}</td></tr>`).join("");
@@ -750,13 +750,13 @@ function ownerCashShiftPrintMarkup(state, shifts) {
   const rows = details.map(({ shift, summary }) => `<tr><td>${esc(shift.Ca_Ma)}</td><td>${esc(employeeName(state, shift.NV_Ma))}</td>
     <td>${esc(locationName(state, shift.DD_Ma))}</td><td>${formatDate(shift.GioMo)}</td><td>${formatNumber(summary.invoiceCount)}</td>
     <td>${formatCurrency(summary.revenue)}</td><td>${formatCurrency(summary.cash)}</td><td>${formatCurrency(summary.transfer)}</td>
-    <td>${formatCurrency(summary.qr)}</td><td>${formatCurrency(shift.TienMatDuKien ?? summary.expectedCash)}</td>
+    <td>${formatCurrency(shift.TienMatDuKien ?? summary.expectedCash)}</td>
     <td>${shift.TienMatThucDem === null ? "—" : formatCurrency(shift.TienMatThucDem)}</td>
     <td>${shift.ChenhLech === null ? "—" : formatCurrency(shift.ChenhLech)}</td><td>${summary.pendingPayments.length}</td><td>${esc(shift.TrangThai)}</td></tr>`).join("");
   return `<div class="shift-print"><h2>BÁO CÁO CA BÁN HÀNG</h2>
     <p>Kỳ báo cáo: ${esc(reportFilters.from || "Tất cả")} – ${esc(reportFilters.to || "Tất cả")}
       · Cửa hàng: ${esc(reportFilters.location ? locationName(state, reportFilters.location) : "Tất cả")}</p>
-    ${tableCard("Chi tiết ca", `${shifts.length} ca`, ["Mã ca", "Thu ngân", "Cửa hàng", "Ngày mở", "Hóa đơn", "Doanh thu", "Tiền mặt", "Chuyển khoản", "QR", "Tiền dự kiến", "Thực đếm", "Chênh lệch", "Thanh toán chờ", "Trạng thái"], rows)}
+    ${tableCard("Chi tiết ca", `${shifts.length} ca`, ["Mã ca", "Thu ngân", "Cửa hàng", "Ngày mở", "Hóa đơn", "Doanh thu", "Tiền mặt", "Chuyển khoản", "Tiền dự kiến", "Thực đếm", "Chênh lệch", "Thanh toán chờ", "Trạng thái"], rows)}
     <p class="cell-muted">Bản in demo, không phải chứng từ kế toán hoặc sao kê ngân hàng.</p></div>`;
 }
 
@@ -774,7 +774,7 @@ function openOwnerCashShiftDetail(shiftId) {
       <p>Thu ngân: ${esc(employeeName(state, shift.NV_Ma))} · Cửa hàng: ${esc(locationName(state, shift.DD_Ma))} · ${esc(shift.TrangThai)}</p>
       <p>Mở: ${formatDate(shift.GioMo)} · Kết: ${shift.GioDong ? formatDate(shift.GioDong) : "Chưa kết ca"}</p>
       <div class="metric-grid">${metric("Doanh thu hóa đơn", formatCurrency(summary.revenue))}${metric("Tiền mặt", formatCurrency(summary.cash))}
-        ${metric("Chuyển khoản", formatCurrency(summary.transfer))}${metric("QR", formatCurrency(summary.qr))}
+        ${metric("Chuyển khoản", formatCurrency(summary.transfer))}
         ${metric("Tiền đầu ca", formatCurrency(shift.TienMatDauCa))}${metric("Tiền dự kiến", formatCurrency(shift.TienMatDuKien ?? summary.expectedCash))}
         ${metric("Thực đếm", shift.TienMatThucDem === null ? "Chưa kết ca" : formatCurrency(shift.TienMatThucDem))}
         ${metric("Chênh lệch", shift.ChenhLech === null ? "—" : formatCurrency(shift.ChenhLech))}</div>

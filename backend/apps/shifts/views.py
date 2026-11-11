@@ -5,7 +5,31 @@ from rest_framework import generics, serializers, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.accounts.constants import STORE_OWNER_ROLE
+from apps.accounts.permissions import user_has_any_role
+from apps.accounts.models import Employee
+from apps.inventory.permissions import IsAccountantOrOwner, IsSalesOrOwner
+from apps.sales.models import SaleInvoice, SalePayment
+
 from .models import CashShift
+
+
+def _is_store_owner(user):
+    return bool(
+        user.is_staff
+        or user.is_superuser
+        or user_has_any_role(user, (STORE_OWNER_ROLE,))
+    )
+
+
+def _active_employee_code(user):
+    return Employee.objects.filter(user=user, is_active=True).values_list('code', flat=True).first()
+
+
+def _owns_shift(user, shift):
+    if _is_store_owner(user):
+        return True
+    return _active_employee_code(user) == shift.NV_Ma
 
 
 class CashShiftSerializer(serializers.ModelSerializer):
@@ -42,11 +66,23 @@ class CashShiftSerializer(serializers.ModelSerializer):
 class CashShiftListCreateAPIView(generics.ListCreateAPIView):
     queryset = CashShift.objects.all().order_by('-GioMo')
     serializer_class = CashShiftSerializer
+    permission_classes = (IsAccountantOrOwner,)
+
+    def get_permissions(self):
+        if self.request.method == 'POST':
+            return [IsSalesOrOwner()]
+        return [IsAccountantOrOwner()]
 
     def create(self, request, *args, **kwargs):
         payload = request.data.copy()
         if not payload.get('Ca_Ma'):
             payload['Ca_Ma'] = self._generate_shift_code()
+        if not _is_store_owner(request.user):
+            employee_code = _active_employee_code(request.user)
+            if not employee_code:
+                return Response({'detail': 'Tài khoản chưa được gán hồ sơ nhân viên.'}, status=status.HTTP_403_FORBIDDEN)
+            if employee_code != payload.get('NV_Ma'):
+                return Response({'detail': 'Chỉ được mở ca cho nhân viên đang đăng nhập.'}, status=status.HTTP_403_FORBIDDEN)
         if CashShift.objects.filter(NV_Ma=payload.get('NV_Ma'), TrangThai=CashShift.Status.OPEN).exists():
             raise ValidationError('Nhân viên đã có ca đang mở. Hãy tiếp tục ca hiện tại hoặc đóng ca trước.')
         serializer = self.get_serializer(data=payload)
@@ -67,13 +103,22 @@ class CashShiftDetailAPIView(generics.RetrieveAPIView):
     queryset = CashShift.objects.all()
     serializer_class = CashShiftSerializer
     lookup_field = 'pk'
+    permission_classes = (IsAccountantOrOwner,)
 
 
 class CashShiftOpenAPIView(APIView):
+    permission_classes = (IsSalesOrOwner,)
+
     def post(self, request, *args, **kwargs):
         data = request.data.copy()
         if not data.get('Ca_Ma'):
             data['Ca_Ma'] = CashShiftListCreateAPIView._generate_shift_code()
+        if not _is_store_owner(request.user):
+            employee_code = _active_employee_code(request.user)
+            if not employee_code:
+                return Response({'detail': 'Tài khoản chưa được gán hồ sơ nhân viên.'}, status=status.HTTP_403_FORBIDDEN)
+            if employee_code != data.get('NV_Ma'):
+                return Response({'detail': 'Chỉ được mở ca cho nhân viên đang đăng nhập.'}, status=status.HTTP_403_FORBIDDEN)
         if CashShift.objects.filter(NV_Ma=data.get('NV_Ma'), TrangThai=CashShift.Status.OPEN).exists():
             return Response({'detail': 'Nhân viên đã có ca đang mở.'}, status=status.HTTP_400_BAD_REQUEST)
         serializer = CashShiftSerializer(data=data)
@@ -83,20 +128,28 @@ class CashShiftOpenAPIView(APIView):
 
 
 class CashShiftSubmitAPIView(APIView):
+    permission_classes = (IsSalesOrOwner,)
+
     def post(self, request, pk, *args, **kwargs):
         shift = CashShift.objects.get(Ca_Ma=pk)
+        if not _owns_shift(request.user, shift):
+            return Response({'detail': 'Chỉ nhân viên sở hữu ca hoặc chủ cửa hàng được kết ca.'}, status=status.HTTP_403_FORBIDDEN)
         if shift.TrangThai != CashShift.Status.OPEN:
             return Response({'detail': 'Ca này đã kết thúc hoặc đã gửi đối soát.'}, status=status.HTTP_400_BAD_REQUEST)
 
         counted_cash = int(request.data.get('TienMatThucDem', request.data.get('countedCash', 0)))
         explanation = str(request.data.get('GiaiTrinh', request.data.get('explanation', ''))).strip()
-        cash_payments = request.data.get('cash_payments') or []
-        expected_cash = int(shift.TienMatDauCa)
-        for payment in cash_payments:
-            if isinstance(payment, dict):
-                expected_cash += int(payment.get('amount', 0) or 0)
-            else:
-                expected_cash += int(payment or 0)
+        cash_sales = SalePayment.objects.filter(
+            invoice__employee__code=shift.NV_Ma,
+            invoice__location__code=shift.DD_Ma,
+            invoice__status=SaleInvoice.Status.CONFIRMED,
+            payment_date__gte=shift.GioMo,
+            status=SalePayment.Status.SUCCESS,
+            method=SalePayment.Method.CASH,
+        )
+        if shift.GioDong:
+            cash_sales = cash_sales.filter(payment_date__lte=shift.GioDong)
+        expected_cash = int(shift.TienMatDauCa) + sum(payment.amount for payment in cash_sales)
         if counted_cash < 0:
             return Response({'detail': 'Tiền mặt thực đếm không hợp lệ.'}, status=status.HTTP_400_BAD_REQUEST)
         variance = counted_cash - expected_cash
@@ -115,6 +168,8 @@ class CashShiftSubmitAPIView(APIView):
 
 
 class CashShiftRequestExplanationAPIView(APIView):
+    permission_classes = (IsAccountantOrOwner,)
+
     def post(self, request, pk, *args, **kwargs):
         shift = CashShift.objects.get(Ca_Ma=pk)
         if shift.TrangThai not in [CashShift.Status.PENDING_RECONCILE, CashShift.Status.NEEDS_EXPLANATION]:
@@ -131,6 +186,8 @@ class CashShiftRequestExplanationAPIView(APIView):
 
 
 class CashShiftReconcileAPIView(APIView):
+    permission_classes = (IsAccountantOrOwner,)
+
     def post(self, request, pk, *args, **kwargs):
         shift = CashShift.objects.get(Ca_Ma=pk)
         if shift.TrangThai != CashShift.Status.PENDING_RECONCILE:
@@ -146,6 +203,8 @@ class CashShiftReconcileAPIView(APIView):
 
 
 class CashShiftHandoverAPIView(APIView):
+    permission_classes = (IsAccountantOrOwner,)
+
     def post(self, request, pk, *args, **kwargs):
         shift = CashShift.objects.get(Ca_Ma=pk)
         if shift.TrangThai != CashShift.Status.RECONCILED or shift.ThoiDiemXacNhanBanGiao:
@@ -165,6 +224,7 @@ class CashShiftHandoverAPIView(APIView):
 
 class CashShiftSearchAPIView(generics.ListAPIView):
     serializer_class = CashShiftSerializer
+    permission_classes = (IsAccountantOrOwner,)
 
     def get_queryset(self):
         queryset = CashShift.objects.all()

@@ -133,7 +133,7 @@ function getPaymentAllocations(payment) {
     : [{ amount: Number(payment?.amount ?? 0), method: String(payment?.method || "Tiền mặt") }];
   for (const allocation of allocations) {
     validatePaymentAmount(allocation.amount);
-    if (!["Tiền mặt", "Chuyển khoản", "QR"].includes(allocation.method)) {
+    if (!["Tiền mặt", "Chuyển khoản"].includes(allocation.method)) {
       throw new Error("Phương thức thanh toán không hợp lệ.");
     }
   }
@@ -148,7 +148,7 @@ function ensureSuccessfulSalesReceipt(state, payment, collectorId, sourceHint = 
   if (!payment.TTBH_Ngay || Number.isNaN(Date.parse(payment.TTBH_Ngay))) {
     throw new Error("Ngày thanh toán nguồn không hợp lệ; chưa thể tạo phiếu thu.");
   }
-  if (!["Tiền mặt", "QR", "Chuyển khoản"].includes(payment.TTBH_PhuongThuc)) {
+  if (!["Tiền mặt", "Chuyển khoản"].includes(payment.TTBH_PhuongThuc)) {
     throw new Error("Phương thức thanh toán nguồn không hợp lệ; chưa thể tạo phiếu thu.");
   }
   const invoice = state.HoaDonBanHang.find((row) => row.BH_Ma === payment.BH_Ma && row.BH_TrangThai === "Đã xác nhận");
@@ -432,7 +432,7 @@ export function recordPayment(BH_Ma, { amount, method, role = "", cashierId = ""
       }
       const paymentAmount = Number(amount);
       if (!Number.isSafeInteger(paymentAmount) || paymentAmount <= 0) throw new Error("Số tiền thanh toán phải lớn hơn 0.");
-      if (!["Tiền mặt", "Chuyển khoản", "QR"].includes(method)) throw new Error("Phương thức thanh toán không hợp lệ.");
+      if (!["Tiền mặt", "Chuyển khoản"].includes(method)) throw new Error("Phương thức thanh toán không hợp lệ.");
       const outstanding = invoice.BH_TongCong - totalReserved(draft, BH_Ma);
       if (paymentAmount > outstanding) throw new Error(`Số tiền vượt số còn phải thu (${Math.max(0, outstanding)} ₫).`);
       const payment = {
