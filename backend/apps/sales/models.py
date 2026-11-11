@@ -117,7 +117,6 @@ class SalePayment(models.Model):
     class Method(models.TextChoices):
         CASH = "Tiền mặt", "Tiền mặt"
         BANK_TRANSFER = "Chuyển khoản", "Chuyển khoản"
-        QR = "QR", "QR"
 
     class Status(models.TextChoices):
         SUCCESS = "Thành công", "Thành công"

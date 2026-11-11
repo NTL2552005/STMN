@@ -1,26 +1,21 @@
-import { getState, resetDemoData } from "../../services/kho-service.js";
+import { loadAccountingState } from "../../services/accounting-api-service.js";
 import {
   confirmInboundWithPayable, confirmSupplierPayment, createSupplierDebtFromReceipt, createSupplierPaymentVoucher,
   getAccountingDashboard, getAccountingReports, getCustomerReceivables,
   getCashbook, getPaymentReconciliation, getPurchaseReconciliation, getSalesRevenueReconciliation, getSupplierDebtBalance,
   getSupplierDebtDetails, getSupplierPayables, recordSupplierPayment, saveExpenseVoucher,
-  saveReceiptVoucher, setExpenseVoucherStatus, setReceiptVoucherStatus,
-  setSupplierPaymentStatus
+  saveReceiptVoucher, setExpenseVoucherStatus, setReceiptVoucherStatus, setSupplierPaymentStatus,
+  calculateCashShift, confirmCashHandover, getAccountingReplenishmentItems, reconcileCashShift, requestCashShiftExplanation,
+  syncMissingSalesReceipts, syncSalesReceipt
 } from "../../services/accounting-service.js";
-import { getReplenishmentItems } from "../../services/inventory-service.js";
-import {
-  calculateCashShift, confirmCashHandover, getCashShift, getCashShifts, getOpenCashShift,
-  getCashShiftForPayment, reconcileCashShift, requestCashShiftExplanation
-} from "../../services/cash-register-service.js";
-import { syncMissingSuccessfulSalesReceipts, syncSuccessfulSalesReceipt } from "../../services/sales-service.js";
 import { escapeHtml as esc, formatCurrency, formatDate, formatNumber } from "../../utils/formatters.js";
-import { canAccessPage, getMockActorCode, requirePageAccess } from "../../services/auth-service.js";
+import { canAccessPage, requirePageAccess } from "../../services/auth-service.js";
 
 const page = document.body.dataset.page;
 const session = await requirePageAccess("accounting", page);
 const activeRole = session.role;
 const role = () => activeRole;
-const roleEmployees = { [activeRole]: getMockActorCode(activeRole) || session.employeeCode };
+const roleEmployees = { [activeRole]: session.employeeCode || session.user.employee?.NV_Ma || "" };
 const links = [
   ["accounting-overview", "Tổng quan kế toán", "tong-quan-ke-toan.html", "▦"],
   ["purchase-reconciliation", "Đối chiếu nhập hàng", "doi-chieu-nhap-hang.html", "⇩"],
@@ -63,17 +58,22 @@ const formatDateTime = (value) => {
   }).format(date);
 };
 const nameOf = (state, table, key, field, name) => state[table].find((row) => row[field] === key)?.[name] || "—";
-const supplierName = (state, id) => nameOf(state, "DoiTacKinhDoanh", id, "DT_Ma", "DT_Ten");
+const supplierName = (state, id) => nameOf(state, "NhaCungCap", id, "DT_Ma", "DT_Ten")
+  || nameOf(state, "DoiTacKinhDoanh", id, "DT_Ma", "DT_Ten");
+const customerName = (state, id) => nameOf(state, "DoiTacKinhDoanh", id, "DT_Ma", "DT_Ten")
+  || nameOf(state, "NhaCungCap", id, "DT_Ma", "DT_Ten");
 const itemName = (state, id) => nameOf(state, "HangHoa", id, "HH_Ma", "HH_Ten");
 const locationName = (state, id) => nameOf(state, "DiaDiem", id, "DD_Ma", "DD_Ten");
-const employeeName = (state, id) => nameOf(state, "NhanVien", id, "NV_Ma", "NV_Ten");
+const employeeName = (state, id) => state.NhanVien.find((row) => row.NV_Ma === id)?.NV_Ten || id || "—";
 let selectedSupplier = "";
 let reconciliationTab = "transfers";
 let reportTab = "revenue";
 let dateFrom = "";
 let dateTo = "";
+let selectedLocation = "";
 let cashbookFilters = { from: "", to: "", method: "", type: "", partner: "", status: "" };
 const tablePages = new Map();
+let accountingState = null;
 
 function toast(message, error = false) {
   const host = document.querySelector("#toast-host");
@@ -148,7 +148,7 @@ function options(rows, valueKey, labelKey, selected = "", first = "") {
 }
 
 function shell() {
-  const state = getState();
+  const state = accountingState;
   const locations = state.DiaDiem.filter((row) => row.DD_TrangThai === "Hoạt động");
   const currentRole = role();
   const activeAccountLinks = links.filter(([key]) => canAccessPage("accounting", key, activeRole)).map(([key, label, file, icon]) =>
@@ -163,14 +163,13 @@ function shell() {
     <div class="nav-label">Phân hệ kế toán</div>${activeAccountLinks}
     ${salesNav ? `<div class="module-label">Bán hàng</div>${salesNav}` : ""}
     ${warehouseNav ? `<div class="module-label">Quản lý kho</div>${warehouseNav}` : ""}
-    <div class="sidebar-bottom">Dữ liệu dùng chung Kho &amp; Bán hàng<br>Chế độ demo · localStorage<br>Không thay thế phân quyền Backend</div>
+    <div class="sidebar-bottom">Dữ liệu từ Backend<br>Yêu cầu đăng nhập và phân quyền</div>
     </aside><main class="main-area"><header class="topbar">
-      <div><div class="topbar-title">${esc(pageTitle)}</div><div class="topbar-subtitle">Kế toán nội bộ · Bản mô phỏng nghiệp vụ</div></div>
+      <div><div class="topbar-title">${esc(pageTitle)}</div><div class="topbar-subtitle">Kế toán nội bộ · Dữ liệu trực tiếp từ Backend</div></div>
       <div class="topbar-actions"><select id="accounting-location" aria-label="Địa điểm hiển thị">
-        <option value="">Tất cả địa điểm</option>${options(locations, "DD_Ma", "DD_Ten", "")}</select>
+        <option value="">Tất cả địa điểm</option>${options(locations, "DD_Ma", "DD_Ten", selectedLocation)}</select>
         <span class="user-role">${esc(session.user.employee?.NV_Ten || session.user.username)} · ${esc(activeRole)}</span>
-        <button class="button button-small" data-auth-logout>Đăng xuất</button>
-        <button class="button button-small" data-action="reset">Khôi phục demo</button></div></header>
+        <button class="button button-small" data-auth-logout>Đăng xuất</button></div></header>
       <section class="content" id="page-content"></section></main></div><div id="modal-host"></div>`;
   renderContent();
 }
@@ -188,8 +187,8 @@ function renderOverview(state) {
       <td>${esc(creditor.CNNCC_Ma)}</td><td>${esc(supplierName(state, creditor.DT_Ma))}</td><td class="money">${formatCurrency(principal)}</td>
       <td class="money">${formatCurrency(paid)}</td><td class="negative money">${formatCurrency(due)}</td></tr>`).join("");
   const customers = summary.receivables.slice(0, 5).map(({ debt, invoice, paid, due }) =>
-    `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${supplierName(state, invoice.DT_Ma)}`.toLocaleLowerCase("vi-VN"))}">
-      <td>${esc(invoice.BH_Ma)}</td><td>${esc(supplierName(state, invoice.DT_Ma))}</td><td class="money">${formatCurrency(invoice.BH_TongCong)}</td>
+    `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${customerName(state, invoice.DT_Ma)}`.toLocaleLowerCase("vi-VN"))}">
+      <td>${esc(invoice.BH_Ma)}</td><td>${esc(customerName(state, invoice.DT_Ma))}</td><td class="money">${formatCurrency(invoice.BH_TongCong)}</td>
       <td class="money">${formatCurrency(paid)}</td><td class="negative money">${formatCurrency(due)}</td></tr>`).join("");
   const discrepancies = summary.purchaseDiscrepancies.slice(0, 5).map(({ receipt, comparison }) => {
     const reasons = comparison.filter((row) => row.quantityDelta > 0 || (row.currentQty && Math.round(row.priceDelta) !== 0))
@@ -289,7 +288,7 @@ function renderPurchaseReconciliation(state) {
       <td><button class="button button-small" data-action="view-purchase" data-id="${esc(receipt.PN_Ma)}">Chi tiết</button></td></tr>`;
   }).join("");
   return `${heading("Đối chiếu nhập hàng", "Đối chiếu dữ liệu phiếu nhập của Kho với đơn đặt hàng và công nợ NCC.", "")}
-    ${listFilters([searchFilter("Mã phiếu / đơn đặt / NCC"), selectFilter("supplier", "Nhà cung cấp", rowsFor(state, "DoiTacKinhDoanh", "DT_Ma", "DT_Ten", "Nhà cung cấp")),
+    ${listFilters([searchFilter("Mã phiếu / đơn đặt / NCC"),     selectFilter("supplier", "Nhà cung cấp", rowsFor(state, "NhaCungCap", "DT_Ma", "DT_Ten")),
       dateFilter("from", "Từ ngày"), dateFilter("to", "Đến ngày"), selectFilter("status", "Trạng thái", [...new Set(state.PhieuNhap.map((row) => row.PN_TrangThai))].map((status) => [status, status]))])}
     ${tableCard("Danh sách phiếu nhập", `${state.PhieuNhap.length} chứng từ`, ["Mã phiếu nhập", "Đơn đặt hàng", "Nhà cung cấp", "Ngày nhập", "Kho nhận", "Nhân viên kho", "Tổng tiền", "Trạng thái nhập", "Đối chiếu", "Thao tác"], rows,
       "Kế toán không sửa số lượng nhập đã xác nhận. Nhập không theo đơn đặt hàng là trường hợp hợp lệ, không tự kết luận chênh lệch.", "purchase-list")}`;
@@ -324,7 +323,7 @@ function renderStockReconciliation(state) {
     headers = ["Mặt hàng", "Cửa hàng cần bổ sung", "Tồn khả dụng tại cửa hàng", "Tồn khả dụng tại kho trung tâm", "Trạng thái", "Phiếu chuyển đang xử lý", "Thao tác"];
     const store = state.DiaDiem.find((row) => row.DD_Loai === "Cửa hàng" && row.DD_TrangThai === "Hoạt động");
     const warehouse = state.DiaDiem.find((row) => row.DD_Loai === "Kho" && row.DD_TrangThai === "Hoạt động");
-    rows = getReplenishmentItems(store?.DD_Ma || "", warehouse?.DD_Ma || "", state).map(({ item, store: storeStock, warehouse: warehouseStock, systemAvailable, status }) => {
+    rows = getAccountingReplenishmentItems(store?.DD_Ma || "", warehouse?.DD_Ma || "", state).map(({ item, store: storeStock, warehouse: warehouseStock, systemAvailable, status }) => {
       const activeTransfers = state.PhieuXuatChuyenNoiBo.filter((transfer) =>
         transfer.DD_Nhan === store?.DD_Ma && ["Chờ xuất", "Đang chuyển", "Chờ đối chiếu", "Cần đối chiếu"].includes(transfer.PXCN_TrangThai) &&
         state.PhieuXuatChuyenNoiBoChiTiet.some((line) => line.PXCN_Ma === transfer.PXCN_Ma &&
@@ -369,7 +368,7 @@ function renderStockReconciliation(state) {
         <td><a class="text-link" href="../kho/bien-dong-kho.html">Mở chứng từ Kho</a></td></tr>`).join("");
   }
   const filters = current === "replenishment"
-    ? listFilters([searchFilter("Tìm mặt hàng"), selectFilter("status", "Trạng thái", [...new Set(getReplenishmentItems(
+    ? listFilters([searchFilter("Tìm mặt hàng"), selectFilter("status", "Trạng thái", [...new Set(getAccountingReplenishmentItems(
       state.DiaDiem.find((row) => row.DD_Loai === "Cửa hàng" && row.DD_TrangThai === "Hoạt động")?.DD_Ma || "",
       state.DiaDiem.find((row) => row.DD_Loai === "Kho" && row.DD_TrangThai === "Hoạt động")?.DD_Ma || "",
       state
@@ -511,7 +510,7 @@ function voucherForm(state, type, existing = null) {
     <div class="info-box">${isReceipt ? "Phiếu thu thủ công chỉ ghi nhận khoản thu khác, không liên kết TTBH. Thu bán hàng tự tạo chứng từ khi khoản thanh toán được xác nhận thành công." : "Phiếu chi khác có TTNCC_Ma = NULL. Không dùng màn hình này để ghi lại khoản thanh toán NCC."}</div>
     <div class="form-grid two"><div class="field"><label>Ngày ${isReceipt ? "thu" : "chi"} *</label><input name="${prefix}_Ngay" type="date" value="${esc(String(isReceipt ? receiptDate : existing?.[`${prefix}_Ngay`] || today()).slice(0, 10))}" required></div>
     <div class="field"><label>Số tiền *</label><input name="${prefix}_SoTien" type="number" min="1" step="1" value="${esc(existing?.[`${prefix}_SoTien`] ?? "")}" required></div>
-    <div class="field"><label>Đối tác</label><select name="DT_Ma"><option value="">Không gắn đối tác</option>${options(state.DoiTacKinhDoanh, "DT_Ma", "DT_Ten", existing?.DT_Ma || "")}</select></div>
+    <div class="field"><label>Đối tác</label><select name="DT_Ma"><option value="">Không gắn đối tác</option>${options(isReceipt ? state.DoiTacKinhDoanh : state.NhaCungCap, "DT_Ma", "DT_Ten", existing?.DT_Ma || "")}</select></div>
     <div class="field"><label>Phương thức *</label><select name="${prefix}_PhuongThuc" ${isReceipt ? "disabled" : ""}>${(isReceipt ? ["Tiền mặt"] : ["Tiền mặt"]).map((method) => `<option ${method === (existing?.[`${prefix}_PhuongThuc`] || "Tiền mặt") ? "selected" : ""}>${method}</option>`).join("")}</select>${isReceipt ? `<input type="hidden" name="PT_PhuongThuc" value="Tiền mặt">` : ""}</div>
     <div class="field grow"><label>Lý do *</label><input name="${prefix}_LyDo" maxlength="200" value="${esc(existing?.[`${prefix}_LyDo`] || "")}" required></div>
     <div class="field grow"><label>Ghi chú</label><input name="${prefix}_GhiChu" maxlength="250" value="${esc(existing?.[`${prefix}_GhiChu`] || "")}"></div></div>
@@ -521,7 +520,7 @@ function voucherForm(state, type, existing = null) {
 }
 
 function renderReceiptVouchers(state) {
-  const shifts = getCashShifts();
+  const shifts = state.CaBanHang;
   const rowDetails = state.PhieuThu.map((voucher) => {
     const payment = voucher.TTBH_Ma && state.ThanhToanBanHang.find((row) => row.TTBH_Ma === voucher.TTBH_Ma);
     const invoice = payment && state.HoaDonBanHang.find((row) => row.BH_Ma === payment.BH_Ma);
@@ -533,11 +532,11 @@ function renderReceiptVouchers(state) {
     return { voucher, payment, invoice, shift, source };
   });
   const rows = rowDetails.sort((a, b) => String(b.voucher.PT_Ngay).localeCompare(String(a.voucher.PT_Ngay))).map(({ voucher, payment, invoice, shift, source }) =>
-    `<tr data-accounting-row data-search="${esc(`${voucher.PT_Ma} ${invoice?.BH_Ma || ""} ${voucher.TTBH_Ma || ""} ${supplierName(state, voucher.DT_Ma)} ${voucher.PT_LyDo} ${shift?.Ca_Ma || ""}`.toLocaleLowerCase("vi-VN"))}"
+    `<tr data-accounting-row data-search="${esc(`${voucher.PT_Ma} ${invoice?.BH_Ma || ""} ${voucher.TTBH_Ma || ""} ${customerName(state, voucher.DT_Ma)} ${voucher.PT_LyDo} ${shift?.Ca_Ma || ""}`.toLocaleLowerCase("vi-VN"))}"
       data-method="${esc(voucher.PT_PhuongThuc)}" data-status="${esc(voucher.PT_TrangThai)}" data-date="${esc(String(voucher.PT_Ngay).slice(0, 10))}"
       data-source="${esc(source)}" data-employee="${esc(voucher.NV_Ma || "")}" data-shift="${esc(shift?.Ca_Ma || "")}">
       <td><button class="text-link" data-action="view-receipt" data-id="${esc(voucher.PT_Ma)}">${esc(voucher.PT_Ma)}</button></td>
-      <td>${formatDate(voucher.PT_Ngay)}</td><td>${esc(voucher.DT_Ma ? supplierName(state, voucher.DT_Ma) : "Khách lẻ")}</td>
+      <td>${formatDate(voucher.PT_Ngay)}</td><td>${esc(voucher.DT_Ma ? customerName(state, voucher.DT_Ma) : "Khách lẻ")}</td>
       <td class="money">${formatCurrency(voucher.PT_SoTien)}</td><td>${esc(voucher.PT_PhuongThuc)}</td><td>${esc(source)}</td>
       <td>${invoice ? `<button class="text-link" data-action="view-receipt-invoice" data-id="${esc(invoice.BH_Ma)}">${esc(invoice.BH_Ma)}</button>` : "—"}</td>
       <td>${payment ? `<button class="text-link" data-action="view-invoice-payment" data-id="${esc(payment.TTBH_Ma)}">${esc(payment.TTBH_Ma)}</button>` : "—"}</td>
@@ -597,10 +596,10 @@ function renderRevenueReconciliation(state) {
   const location = document.querySelector("#accounting-location")?.value || "";
   const rowsData = getSalesRevenueReconciliation({ location }, state);
   const rows = rowsData.map(({ invoice, detailAmount, detailQuantity, paid, due, status, reasons, pending }) =>
-    `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${supplierName(state, invoice.DT_Ma)} ${status} ${reasons.join(" ")}`.toLocaleLowerCase("vi-VN"))}"
+    `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${customerName(state, invoice.DT_Ma)} ${status} ${reasons.join(" ")}`.toLocaleLowerCase("vi-VN"))}"
       data-staff="${esc(invoice.NV_Ma)}" data-location="${esc(invoice.DD_Ma)}" data-status="${esc(status)}" data-date="${esc(String(invoice.BH_Ngay).slice(0, 10))}">
       <td>${esc(invoice.BH_Ma)}</td><td>${formatDate(invoice.BH_Ngay)}</td><td>${esc(locationName(state, invoice.DD_Ma))}</td>
-      <td>${esc(employeeName(state, invoice.NV_Ma))}</td><td>${esc(supplierName(state, invoice.DT_Ma))}</td>
+      <td>${esc(employeeName(state, invoice.NV_Ma))}</td><td>${esc(customerName(state, invoice.DT_Ma))}</td>
       <td class="money">${formatCurrency(detailAmount)}</td><td class="money">${formatCurrency(invoice.BH_TongCong)}</td>
       <td class="money">${formatCurrency(paid)}${pending ? `<div class="cell-muted">Chờ: ${formatCurrency(pending)}</div>` : ""}</td>
       <td class="${due ? "negative" : ""} money">${formatCurrency(due)}</td><td>${badge(status)}${reasons.length ? `<div class="reconciliation-reasons">${reasons.map(esc).join("<br>")}</div>` : ""}</td>
@@ -658,13 +657,13 @@ function renderPaymentReconciliation(state) {
           ? `<button class="button button-small" data-action="sync-sales-receipt" data-id="${esc(payment.TTBH_Ma)}">Đồng bộ ${esc(payment.TTBH_Ma)}</button>`
           : "").join(" ");
       const receiptLinks = linkedReceipts.map((voucher) => `<button class="text-link" data-action="view-receipt" data-id="${esc(voucher.PT_Ma)}">${esc(voucher.PT_Ma)}</button>`).join(", ") || "—";
-      return `<tr data-accounting-row data-search="${esc(`${invoiceId} ${supplierName(state, invoice.DT_Ma)} ${stateLabel} ${payments.map((payment) => payment.TTBH_Ma).join(" ")}`.toLocaleLowerCase("vi-VN"))}"
+      return `<tr data-accounting-row data-search="${esc(`${invoiceId} ${customerName(state, invoice.DT_Ma)} ${stateLabel} ${payments.map((payment) => payment.TTBH_Ma).join(" ")}`.toLocaleLowerCase("vi-VN"))}"
         data-status="${esc(stateLabel)}" data-date="${esc(String(invoice.BH_Ngay).slice(0, 10))}">
         <td>${payments[0] ? `<button class="text-link" data-action="view-invoice-payment" data-id="${esc(payments[0].TTBH_Ma)}">${esc(invoiceId)}</button>` : esc(invoiceId)}</td>
         <td>${formatCurrency(invoice.BH_TongCong)}</td><td class="money">${formatCurrency(paid)}</td><td class="money">${formatCurrency(cash)}</td><td class="money">${formatCurrency(bank)}</td>
         <td class="${due ? "negative" : ""} money">${formatCurrency(due)}</td><td>${receiptLinks}</td><td>${transactionIds}${createReceiptActions ? `<div class="inline-actions">${createReceiptActions}</div>` : ""}</td><td>${badge(stateLabel)}</td></tr>`;
     }).join("");
-    content = tableCard("Đối soát theo hóa đơn", `${invoiceIds.length} hóa đơn · ${result.sales.length} giao dịch`, ["Mã hóa đơn", "Tổng hóa đơn", "Đã thu thành công", "Tiền mặt", "Chuyển khoản/QR", "Công nợ còn lại", "Phiếu thu liên kết", "Giao dịch nguồn", "Trạng thái"], rows, "Phiếu thu liên kết không làm tăng tổng thu lần hai. Thanh toán QR/chuyển khoản chỉ được ghi nhận sau xác nhận nội bộ demo, không kết nối ngân hàng.", "reconcile-sales");
+    content = tableCard("Đối soát theo hóa đơn", `${invoiceIds.length} hóa đơn · ${result.sales.length} giao dịch`, ["Mã hóa đơn", "Tổng hóa đơn", "Đã thu thành công", "Tiền mặt", "Chuyển khoản", "Công nợ còn lại", "Phiếu thu liên kết", "Giao dịch nguồn", "Trạng thái"], rows, "Phiếu thu liên kết không làm tăng tổng thu lần hai. Chuyển khoản chỉ được ghi nhận sau xác nhận nội bộ; hệ thống chưa kết nối ngân hàng.", "reconcile-sales");
   } else if (reconciliationTab === "supplier") {
     const rows = result.supplier.map(({ payment, debt, linkedVoucher, alerts }) => {
       const creditor = state.CongNoNCC.find((row) => row.CNNCC_Ma === debt?.CNNCC_Ma);
@@ -679,7 +678,7 @@ function renderPaymentReconciliation(state) {
     content = `<div class="metric-grid">${metric("Thu bán hàng", result.recognizedSalesIncome)}${metric("Thu khác", result.recognizedOtherIncome)}
       ${metric("Chi NCC", result.recognizedSupplierExpense)}${metric("Chi khác", result.recognizedOtherExpense)}
       ${metric("Thu - chi ghi nhận", result.netCashMovement, "Tổng hợp dòng tiền nội bộ; không phải báo cáo lưu chuyển tiền tệ chuẩn")}</div>
-      <div class="info-box">Chưa có dữ liệu sao kê/kiểm quỹ để xác nhận độc lập. Không có kết nối ngân hàng trong bản demo.</div>`;
+      <div class="info-box">Chưa có dữ liệu sao kê/kiểm quỹ để xác nhận độc lập. Hệ thống chưa kết nối ngân hàng.</div>`;
   } else {
     const rows = result.alerts.map((alert, index) => `<tr data-accounting-row data-search="${esc(alert.toLocaleLowerCase("vi-VN"))}"><td>${index + 1}</td><td class="negative">${esc(alert)}</td></tr>`).join("");
     content = tableCard("Các trường hợp cần kiểm tra", `${result.alerts.length} cảnh báo`, ["#", "Nội dung"], rows, "Không tự xác nhận giao dịch với ngân hàng.", "reconcile-alerts");
@@ -693,8 +692,8 @@ function renderPaymentReconciliation(state) {
 function renderCashbook(state) {
   const result = getCashbook(cashbookFilters, state);
   const records = result.rows.filter((row) => !cashbookFilters.status || row.status === cashbookFilters.status);
-  const partnerOptions = [...new Set(state.DoiTacKinhDoanh.map((row) => row.DT_Ma))]
-    .map((id) => [id, supplierName(state, id)]);
+  const partnerOptions = [...new Set([...state.DoiTacKinhDoanh, ...state.NhaCungCap].map((row) => row.DT_Ma))]
+    .map((id) => [id, customerName(state, id)]);
   const methodOptions = ["Tiền mặt", "Chuyển khoản", "QR"].map((value) => [value, value]);
   const typeOptions = ["Thu bán hàng", "Thu khác", "Chi NCC", "Chi khác"].map((value) => [value, value]);
   const statuses = [...new Set(result.rows.map((row) => row.status))].map((value) => [value, value]);
@@ -706,7 +705,7 @@ function renderCashbook(state) {
           : `data-action="view-expense" data-id="${esc(row.voucherId)}"`;
     return `<tr><td>${formatDateTime(row.date)}</td><td><button class="text-link" ${sourceAction}>${esc(row.voucherId)}</button></td>
       <td>${row.sourceId ? esc(row.sourceId) : "—"}${row.linkedVoucherId ? ` · Chứng từ <button class="text-link" data-action="${row.type === "Thu bán hàng" ? "view-receipt" : "view-expense"}" data-id="${esc(row.linkedVoucherId)}">${esc(row.linkedVoucherId)}</button>` : ""}</td>
-      <td>${esc(row.type)}</td><td>${esc(row.content)}</td><td>${esc(row.partnerId ? supplierName(state, row.partnerId) : "—")}</td>
+      <td>${esc(row.type)}</td><td>${esc(row.content)}</td><td>${esc(row.partnerId ? (row.type === "Chi NCC" || row.type === "Chi khác" ? supplierName(state, row.partnerId) : customerName(state, row.partnerId)) : "—")}</td>
       <td>${esc(row.method)}</td><td class="money">${row.incoming ? formatCurrency(row.incoming) : "—"}</td>
       <td class="money">${row.outgoing ? formatCurrency(row.outgoing) : "—"}</td><td>${badge(row.status)}${row.recognized ? "" : `<div class="cell-muted">Chưa ghi nhận dòng tiền</div>`}</td></tr>`;
   }).join("");
@@ -720,15 +719,15 @@ function renderCashbook(state) {
     <div class="metric-grid">${metric("Tổng thu tiền mặt", result.cashIncome)}${metric("Tổng thu ngân hàng/QR", result.bankIncome)}
       ${metric("Tổng chi tiền mặt", result.cashExpense)}${metric("Tổng chi ngân hàng", result.bankExpense)}
       ${metric("Thuần tiền vào/ra", result.net, "Chỉ giao dịch thành công/phiếu đã xác nhận; chứng từ liên kết không tính lần hai")}</div>
-    ${tableCard("Chi tiết sổ thu – chi", `${records.length} dòng`, ["Ngày giờ", "Mã chứng từ", "Chứng từ nguồn", "Loại thu/chi", "Nội dung", "Đối tác", "Phương thức", "Tiền vào", "Tiền ra", "Trạng thái"], rows, "Các giao dịch chờ/thất bại vẫn hiển thị để đối chiếu nhưng không cộng vào chỉ số. QR/chuyển khoản chỉ được ghi nhận sau xác nhận nội bộ demo.", "cashbook")}`;
+    ${tableCard("Chi tiết sổ thu – chi", `${records.length} dòng`, ["Ngày giờ", "Mã chứng từ", "Chứng từ nguồn", "Loại thu/chi", "Nội dung", "Đối tác", "Phương thức", "Tiền vào", "Tiền ra", "Trạng thái"], rows, "Các giao dịch chờ/thất bại vẫn hiển thị để đối chiếu nhưng không cộng vào chỉ số. Chuyển khoản chỉ được ghi nhận sau xác nhận nội bộ.", "cashbook")}`;
 }
 
 function renderCashShiftReconciliation(state) {
-  if (role() !== "Nhân viên kế toán") {
+  if (!["Chủ cửa hàng", "Nhân viên kế toán"].includes(role())) {
     return `${heading("Đối soát ca bán hàng", "Kế toán kiểm tra số liệu kết ca và xác nhận tiền mặt bàn giao.", "")}
       <div class="info-box info-warning">Chức năng xác nhận chỉ dành cho vai trò Nhân viên kế toán. Dữ liệu ca có thể xem tại báo cáo Chủ cửa hàng.</div>`;
   }
-  const shifts = getCashShifts().sort((a, b) => String(b.GioMo).localeCompare(String(a.GioMo)));
+  const shifts = state.CaBanHang.slice().sort((a, b) => String(b.GioMo).localeCompare(String(a.GioMo)));
   const rows = shifts.map((shift) => {
     const summary = calculateCashShift(shift, state);
     const actions = [
@@ -778,7 +777,7 @@ function cashShiftDetailMarkup(state, shift) {
     <p>Thu ngân: ${esc(employeeName(state, shift.NV_Ma))} · Cửa hàng: ${esc(locationName(state, shift.DD_Ma))}</p>
     <p>Mở: ${formatDateTime(shift.GioMo)} · Kết: ${shift.GioDong ? formatDateTime(shift.GioDong) : "Chưa kết ca"} · Trạng thái: ${esc(shift.TrangThai)}</p>
     <div class="metric-grid">${metric("Doanh thu hóa đơn", summary.revenue)}${metric("Tiền mặt", summary.cash)}${metric("Chuyển khoản", summary.transfer)}
-      ${metric("QR", summary.qr)}${metric("Tiền mặt đầu ca", shift.TienMatDauCa)}
+      ${metric("Tiền mặt đầu ca", shift.TienMatDauCa)}
       ${metric("Tiền dự kiến", shift.TienMatDuKien ?? summary.expectedCash)}
       ${metric("Tiền thực đếm", shift.TienMatThucDem ?? 0)}
       ${metric("Chênh lệch", shift.ChenhLech ?? 0)}</div>
@@ -787,18 +786,18 @@ function cashShiftDetailMarkup(state, shift) {
       ${shift.ThoiDiemXacNhanBanGiao ? ` · Người nhận: ${esc(employeeName(state, shift.NguoiNhanBanGiao))} · ${formatDateTime(shift.ThoiDiemXacNhanBanGiao)}` : ""}</p>
     ${tableCard("Hóa đơn trong ca", `${summary.invoiceCount} hóa đơn`, ["Mã hóa đơn", "Thời điểm", "Tổng hóa đơn"], invoiceRows)}
     ${tableCard("Thanh toán gắn với ca", `${summary.payments.length} thanh toán`, ["Hóa đơn", "Mã thanh toán", "Thời điểm", "Phiếu thu liên kết", "Số tiền", "Phương thức", "Trạng thái"], paymentRows)}
-    <p class="cell-muted">Bản in demo, không thay thế chứng từ kế toán hoặc sao kê ngân hàng.</p></div>`;
+    <p class="cell-muted">Bản in tham khảo, không thay thế chứng từ kế toán hoặc sao kê ngân hàng.</p></div>`;
 }
 
 function openCashShiftDetail(state, shiftId) {
-  const shift = getCashShift(shiftId);
+  const shift = state.CaBanHang.find((row) => row.Ca_Ma === shiftId);
   if (!shift) return toast("Không tìm thấy ca bán hàng.", true);
   modal(`Chi tiết ca ${shift.Ca_Ma}`, cashShiftDetailMarkup(state, shift),
     `<button class="button" data-action="close-modal">Đóng</button><button class="button button-primary" data-action="print-cash-shift">In báo cáo / biên bản</button>`, true);
 }
 
 function openCashShiftActionForm(action, shiftId) {
-  const shift = getCashShift(shiftId);
+  const shift = accountingState.CaBanHang.find((row) => row.Ca_Ma === shiftId);
   if (!shift) return toast("Không tìm thấy ca bán hàng.", true);
   const definitions = {
     "request-cash-shift-explanation": {
@@ -846,8 +845,8 @@ function renderReports(state) {
     const supplierRows = report.debtDetails.map(({ debt, receipt, paid, due }) => `<tr data-accounting-row data-search="${esc(`${debt.CTNNCC_Ma} ${debt.PN_Ma} ${supplierName(state, state.CongNoNCC.find((row) => row.CNNCC_Ma === debt.CNNCC_Ma)?.DT_Ma)}`.toLocaleLowerCase("vi-VN"))}">
       <td>${esc(supplierName(state, state.CongNoNCC.find((row) => row.CNNCC_Ma === debt.CNNCC_Ma)?.DT_Ma))}</td><td>${esc(receipt?.PN_Ma || debt.PN_Ma)}</td>
       <td class="money">${formatCurrency(debt.CTNNCC_SoTienNo)}</td><td class="money">${formatCurrency(paid)}</td><td class="negative money">${formatCurrency(due)}</td></tr>`).join("");
-    const customerRows = report.customerDebts.map(({ invoice, paid, due }) => `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${supplierName(state, invoice.DT_Ma)}`.toLocaleLowerCase("vi-VN"))}">
-      <td>${esc(supplierName(state, invoice.DT_Ma))}</td><td>${esc(invoice.BH_Ma)}</td><td class="money">${formatCurrency(invoice.BH_TongCong)}</td><td class="money">${formatCurrency(paid)}</td><td class="negative money">${formatCurrency(due)}</td></tr>`).join("");
+    const customerRows = report.customerDebts.map(({ invoice, paid, due }) => `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${customerName(state, invoice.DT_Ma)}`.toLocaleLowerCase("vi-VN"))}">
+      <td>${esc(customerName(state, invoice.DT_Ma))}</td><td>${esc(invoice.BH_Ma)}</td><td class="money">${formatCurrency(invoice.BH_TongCong)}</td><td class="money">${formatCurrency(paid)}</td><td class="negative money">${formatCurrency(due)}</td></tr>`).join("");
     content = `<div class="metric-grid">${metric("Phải thu khách hàng", report.receivableBalance)}${metric("Phải trả NCC", report.payableBalance)}</div>
       <div class="dashboard-grid">${tableCard("Khoản phải trả NCC", `${report.debtDetails.length} khoản còn dư`, ["NCC", "Phiếu nhập", "Nợ gốc", "Đã trả", "Còn nợ"], supplierRows, "", "report-supplier-debt")}
       ${tableCard("Khoản phải thu khách hàng", `${report.customerDebts.length} hóa đơn còn dư`, ["Khách hàng", "Hóa đơn", "Tổng tiền", "Đã thu", "Còn nợ"], customerRows, "", "report-customer-debt")}</div>
@@ -857,12 +856,13 @@ function renderReports(state) {
       <div class="info-box">Giá trị tồn = SUM(TK_SL × PNCT_DonGia). Giá vốn = SUM(BH_SL × PNCT_DonGia) của hóa đơn đã xác nhận. Không suy luận thuế, chi phí phân bổ hoặc lợi nhuận sau thuế.</div>`;
   }
   const reportTitle = reportTab === "cashbook" ? "Sổ thu – chi" : "Báo cáo kế toán";
-  return `${heading(reportTitle, "Báo cáo được tính trực tiếp từ state Kho/Bán hàng; không tạo bảng hoặc dữ liệu ngoài lược đồ.", "")}${tabBar}${content}`;
+  return `${heading(reportTitle, "Báo cáo lấy từ dữ liệu Backend của Kho và Bán hàng.", "")}${tabBar}${content}`;
 }
 
 function renderContent() {
   try {
-    const state = getState();
+    const state = accountingState;
+    if (!state) throw new Error("Chưa tải được dữ liệu kế toán từ Backend.");
     const renderers = {
       "accounting-overview": renderOverview,
       "purchase-reconciliation": renderPurchaseReconciliation,
@@ -882,8 +882,8 @@ function renderContent() {
         <div class="info-box">Dữ liệu công nợ và lịch sử trả nợ được dùng trực tiếp từ phân hệ Bán hàng để tránh tạo một bản sao kế toán riêng.</div>
         ${tableCard("Công nợ khách hàng hiện tại", `${getCustomerReceivables("", state).length} hóa đơn còn nợ`,
           ["Mã hóa đơn", "Khách hàng", "Tổng hóa đơn", "Đã thanh toán", "Còn phải thu", "Lịch sử"], getCustomerReceivables("", state).map(({ invoice, paid, due }) =>
-          `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${supplierName(state, invoice.DT_Ma)}`.toLocaleLowerCase("vi-VN"))}">
-            <td>${esc(invoice.BH_Ma)}</td><td>${esc(supplierName(state, invoice.DT_Ma))}</td><td class="money">${formatCurrency(invoice.BH_TongCong)}</td>
+          `<tr data-accounting-row data-search="${esc(`${invoice.BH_Ma} ${customerName(state, invoice.DT_Ma)}`.toLocaleLowerCase("vi-VN"))}">
+            <td>${esc(invoice.BH_Ma)}</td><td>${esc(customerName(state, invoice.DT_Ma))}</td><td class="money">${formatCurrency(invoice.BH_TongCong)}</td>
             <td class="money">${formatCurrency(paid)}</td><td class="negative money">${formatCurrency(due)}</td>
             <td><a class="button button-small" href="../ban-hang-ke-toan/cong-no-khach-hang.html?customer=${encodeURIComponent(invoice.DT_Ma)}">Xem / ghi trả nợ</a></td></tr>`).join(""), "", "accounting-customer-debts")}`
       : (renderers[page] || renderOverview)(state);
@@ -891,6 +891,11 @@ function renderContent() {
   } catch (error) {
     document.querySelector("#page-content").innerHTML = `<div class="warning-box">Không thể tải dữ liệu kế toán: ${esc(error.message || "Lỗi không xác định.")}</div>`;
   }
+}
+
+async function refreshAccountingState() {
+  accountingState = await loadAccountingState();
+  return accountingState;
 }
 
 function applyFilters() {
@@ -967,12 +972,12 @@ function updateSelectedDebtDetails(state, CTNNCC_Ma) {
   if (submit) submit.disabled = !balance;
 }
 
-function handleClick(event) {
+async function handleClick(event) {
   const button = event.target.closest("[data-action]");
   if (!button) return;
   const action = button.dataset.action;
   const id = button.dataset.id || "";
-  const state = getState();
+  const state = accountingState;
   if (action === "close-modal" || (action === "backdrop-close" && event.target === button)) return closeModal();
   if (action === "view-cash-shift") return openCashShiftDetail(state, id);
   if (["request-cash-shift-explanation", "reconcile-cash-shift", "confirm-cash-handover"].includes(action)) {
@@ -982,32 +987,27 @@ function handleClick(event) {
   if (action === "print-receipt") return window.print();
   if (action === "sync-sales-receipt") {
     try {
-      const result = syncSuccessfulSalesReceipt(id, role());
+      const result = await syncSalesReceipt(id, role());
+      await refreshAccountingState();
       renderContent();
-      toast(result.created ? `Đã đồng bộ phiếu thu ${result.PT_Ma}.` : `Giao dịch đã có phiếu thu ${result.PT_Ma}.`);
+      toast(`Đã đồng bộ phiếu thu ${result.code}.`);
     } catch (error) { toast(error.message, true); }
     return;
   }
   if (action === "sync-missing-sales-receipts") {
-    const state = getState();
     const missing = state.ThanhToanBanHang.filter((payment) => payment.TTBH_TrangThai === "Thành công"
       && !state.PhieuThu.some((voucher) => voucher.TTBH_Ma === payment.TTBH_Ma));
     if (!missing.length) return toast("Không có phiếu thu bán hàng nào đang thiếu.");
-    if (!confirm(`Đồng bộ ${missing.length} giao dịch thanh toán thành công đang thiếu phiếu thu? Dữ liệu cũ không được tự thay đổi khi chưa xác nhận.`)) return;
+    if (!confirm(`Đồng bộ ${missing.length} giao dịch thanh toán thành công đang thiếu phiếu thu?`)) return;
     try {
-      const results = syncMissingSuccessfulSalesReceipts(role());
+      const results = await syncMissingSalesReceipts(state, role());
+      await refreshAccountingState();
       renderContent();
       toast(`Đã đồng bộ ${results.length} phiếu thu.`);
     } catch (error) { toast(error.message, true); }
     return;
   }
-  if (action === "reset") {
-    if (!confirm("Khôi phục dữ liệu demo dùng chung cho Kho, Bán hàng và Kế toán? Các thay đổi trên trình duyệt sẽ bị xóa.")) return;
-    resetDemoData();
-    closeModal();
-    renderContent();
-    toast("Đã khôi phục dữ liệu demo dùng chung.");
-  } else if (action === "clear-filters") {
+  if (action === "clear-filters") {
     document.querySelectorAll(".list-filter").forEach((control) => { control.value = ""; });
     tablePages.clear();
     applyFilters();
@@ -1035,7 +1035,8 @@ function handleClick(event) {
   else if (action === "confirm-inbound") {
     if (!confirm(`Xác nhận phiếu nhập ${id}? Hệ thống sẽ cập nhật TonKho, BienDongKho và tự ghi nhận công nợ NCC nếu phiếu có giá trị phải trả.`)) return;
     try {
-      const result = confirmInboundWithPayable(id, role());
+      const result = await confirmInboundWithPayable(id, role());
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(result.debtId
@@ -1047,8 +1048,10 @@ function handleClick(event) {
   else if (action === "create-receipt-debt") {
     if (!confirm(`Ghi nhận một khoản nợ bằng tổng phiếu nhập ${id}? Không tạo thanh toán NCC.`)) return;
     try {
-      const debtId = createSupplierDebtFromReceipt(id, role());
+      const result = await createSupplierDebtFromReceipt(id, role());
+      const debtId = result.code;
       selectedSupplier = state.CongNoNCC.find((row) => row.DT_Ma === state.PhieuNhap.find((receipt) => receipt.PN_Ma === id)?.DT_Ma)?.CNNCC_Ma || "";
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã ghi nhận khoản nợ ${debtId}.`);
@@ -1060,22 +1063,22 @@ function handleClick(event) {
   else if (action === "new-supplier-payment") paymentForm(state, id);
   else if (action === "confirm-supplier-payment") {
     if (!confirm(`Chỉ xác nhận ${id} sau khi đã kiểm tra thanh toán thực tế?`)) return;
-    try { confirmSupplierPayment(id, role()); renderContent(); toast(`Đã xác nhận ${id}.`); }
+    try { await confirmSupplierPayment(id, role()); await refreshAccountingState(); renderContent(); toast(`Đã xác nhận ${id}.`); }
     catch (error) { toast(error.message, true); }
   } else if (action === "fail-supplier-payment") {
     if (!confirm(`Đánh dấu giao dịch ${id} thất bại? Công nợ sẽ không giảm.`)) return;
-    try { setSupplierPaymentStatus(id, "Thất bại", role()); renderContent(); toast(`Đã cập nhật ${id}.`); }
+    try { await setSupplierPaymentStatus(id, "Thất bại", role()); await refreshAccountingState(); renderContent(); toast(`Đã cập nhật ${id}.`); }
     catch (error) { toast(error.message, true); }
   } else if (action === "create-expense-voucher") {
     if (!confirm(`Tạo phiếu chi liên kết với ${id}? Khoản chi sẽ chỉ được tính một lần từ ThanhToanNCC.`)) return;
-    try { const voucherId = createSupplierPaymentVoucher(id, role()); renderContent(); toast(`Đã tạo phiếu chi ${voucherId}.`); }
+    try { const voucher = await createSupplierPaymentVoucher(id, role()); await refreshAccountingState(); renderContent(); toast(`Đã tạo phiếu chi ${voucher.code}.`); }
     catch (error) { toast(error.message, true); }
   } else if (action === "view-receipt") {
     const voucher = state.PhieuThu.find((row) => row.PT_Ma === id);
     if (!voucher) return toast("Không tìm thấy phiếu thu.", true);
     const sourcePayment = voucher.TTBH_Ma && state.ThanhToanBanHang.find((row) => row.TTBH_Ma === voucher.TTBH_Ma);
     const invoice = sourcePayment && state.HoaDonBanHang.find((row) => row.BH_Ma === sourcePayment.BH_Ma);
-    const shift = sourcePayment && getCashShiftForPayment(sourcePayment.TTBH_Ma);
+    const shift = sourcePayment && state.CaBanHang.find((row) => row.paymentIds.includes(sourcePayment.TTBH_Ma));
     const invoicePaid = invoice ? state.ThanhToanBanHang
       .filter((row) => row.BH_Ma === invoice.BH_Ma && row.TTBH_TrangThai === "Thành công")
       .reduce((sum, row) => sum + Number(row.TTBH_SoTien || 0), 0) : 0;
@@ -1086,12 +1089,12 @@ function handleClick(event) {
     const isCash = voucher.PT_PhuongThuc === "Tiền mặt";
     modal(`Phiếu thu ${id}`, `<div class="invoice-print"><h2>${isCash ? "PHIẾU THU TIỀN MẶT" : "CHỨNG TỪ THU QUA NGÂN HÀNG"}</h2>
       <p>Siêu thị mini · ${source}</p><p>Mã phiếu: <strong>${esc(voucher.PT_Ma)}</strong> · Ngày lập: ${formatDateTime(voucher.PT_Ngay)}</p>
-      <p>Người nộp: ${esc(voucher.DT_Ma ? supplierName(state, voucher.DT_Ma) : "Khách lẻ")} · Số tiền: <strong>${formatCurrency(voucher.PT_SoTien)}</strong></p>
+      <p>Người nộp: ${esc(voucher.DT_Ma ? customerName(state, voucher.DT_Ma) : "Khách lẻ")} · Số tiền: <strong>${formatCurrency(voucher.PT_SoTien)}</strong></p>
       <p>Phương thức: ${esc(voucher.PT_PhuongThuc)} · Trạng thái: ${esc(voucher.PT_TrangThai)}</p>
       <p>Diễn giải: ${esc(voucher.PT_LyDo)} · Nhân viên lập: ${esc(employeeName(state, voucher.NV_Ma))}</p>
       ${voucher.PT_GhiChu ? `<p>Ghi chú: ${esc(voucher.PT_GhiChu)}</p>` : ""}
       ${sourcePayment ? `<hr><h3>Giao dịch thanh toán</h3><p>${esc(sourcePayment.TTBH_Ma)} · ${formatDateTime(sourcePayment.TTBH_Ngay)} · ${formatCurrency(sourcePayment.TTBH_SoTien)} · ${esc(sourcePayment.TTBH_PhuongThuc)} · ${esc(sourcePayment.TTBH_TrangThai)}</p>` : ""}
-      ${invoice ? `<h3>Hóa đơn bán hàng</h3><p>${esc(invoice.BH_Ma)} · ${formatDateTime(invoice.BH_Ngay)} · Khách hàng: ${esc(invoice.DT_Ma ? supplierName(state, invoice.DT_Ma) : "Khách lẻ")}</p>
+      ${invoice ? `<h3>Hóa đơn bán hàng</h3><p>${esc(invoice.BH_Ma)} · ${formatDateTime(invoice.BH_Ngay)} · Khách hàng: ${esc(invoice.DT_Ma ? customerName(state, invoice.DT_Ma) : "Khách lẻ")}</p>
         <p>Tổng hóa đơn: ${formatCurrency(invoice.BH_TongCong)} · Đã thanh toán: ${formatCurrency(invoicePaid)} · Còn phải thu: ${formatCurrency(Math.max(0, invoice.BH_TongCong - invoicePaid))}</p>
         <p>Nhân viên bán: ${esc(employeeName(state, invoice.NV_Ma))} · Địa điểm: ${esc(locationName(state, invoice.DD_Ma))}</p>` : ""}
       ${shift ? `<h3>Ca bán hàng</h3><p>${esc(shift.Ca_Ma)} · ${esc(employeeName(state, shift.NV_Ma))} · ${formatDateTime(shift.GioMo)} – ${shift.GioDong ? formatDateTime(shift.GioDong) : "Đang mở"}</p>` : ""}</div>`,
@@ -1105,7 +1108,7 @@ function handleClick(event) {
       .reduce((sum, row) => sum + Number(row.TTBH_SoTien || 0), 0);
     modal(`Hóa đơn ${id}`, `<div class="form-grid two">
       <div><span class="field-label">Mã hóa đơn / ngày bán</span><div>${esc(invoice.BH_Ma)} · ${formatDateTime(invoice.BH_Ngay)}</div></div>
-      <div><span class="field-label">Khách hàng</span><div>${esc(invoice.DT_Ma ? supplierName(state, invoice.DT_Ma) : "Khách lẻ")}</div></div>
+      <div><span class="field-label">Khách hàng</span><div>${esc(invoice.DT_Ma ? customerName(state, invoice.DT_Ma) : "Khách lẻ")}</div></div>
       <div><span class="field-label">Tổng hóa đơn</span><div>${formatCurrency(invoice.BH_TongCong)}</div></div>
       <div><span class="field-label">Đã thanh toán / còn phải thu</span><div>${formatCurrency(paid)} / ${formatCurrency(Math.max(0, invoice.BH_TongCong - paid))}</div></div>
       <div><span class="field-label">Nhân viên bán</span><div>${esc(employeeName(state, invoice.NV_Ma))}</div></div>
@@ -1119,12 +1122,12 @@ function handleClick(event) {
     const voucher = state.PhieuThu.find((row) => row.TTBH_Ma === id);
     modal(`Thanh toán ${id}`, `<div class="form-grid two">
       <div><span class="field-label">Hóa đơn</span><div>${esc(payment.BH_Ma)}</div></div>
-      <div><span class="field-label">Khách hàng</span><div>${esc(supplierName(state, invoice?.DT_Ma))}</div></div>
+      <div><span class="field-label">Khách hàng</span><div>${esc(customerName(state, invoice?.DT_Ma))}</div></div>
       <div><span class="field-label">Ngày thanh toán</span><div>${formatDate(payment.TTBH_Ngay)}</div></div>
       <div><span class="field-label">Số tiền</span><div>${formatCurrency(payment.TTBH_SoTien)}</div></div>
       <div><span class="field-label">Phương thức / trạng thái</span><div>${esc(payment.TTBH_PhuongThuc)} · ${badge(payment.TTBH_TrangThai)}</div></div>
       <div><span class="field-label">Phiếu thu liên kết</span><div>${voucher ? `<button class="text-link" data-action="view-receipt" data-id="${esc(voucher.PT_Ma)}">${esc(voucher.PT_Ma)}</button>` : payment.TTBH_TrangThai === "Thành công" ? "Thiếu chứng từ thu" : "Chưa tạo khi giao dịch còn chờ"}</div></div>
-      <div class="info-box">Giao dịch chuyển khoản/QR trong demo chưa được xác minh bởi ngân hàng thật.</div></div>`,
+      <div class="info-box">Giao dịch chuyển khoản/QR chưa được xác minh bởi ngân hàng thật.</div></div>`,
     `<button class="button" data-action="close-modal">Đóng</button>`);
   } else if (action === "view-expense") {
     const voucher = state.PhieuChi.find((row) => row.PC_Ma === id);
@@ -1145,7 +1148,7 @@ function handleClick(event) {
   } else if (action === "confirm-receipt" || action === "cancel-receipt") {
     const next = action === "confirm-receipt" ? "Đã xác nhận" : "Đã hủy";
     if (!confirm(`${next} phiếu thu ${id}?`)) return;
-    try { setReceiptVoucherStatus(id, next, role()); renderContent(); toast(`Đã cập nhật phiếu thu ${id}.`); }
+    try { await setReceiptVoucherStatus(id, next, role()); await refreshAccountingState(); renderContent(); toast(`Đã cập nhật phiếu thu ${id}.`); }
     catch (error) { toast(error.message, true); }
   } else if (action === "new-expense") voucherForm(state, "expense");
   else if (action === "edit-expense") {
@@ -1154,12 +1157,12 @@ function handleClick(event) {
   } else if (action === "confirm-expense" || action === "cancel-expense") {
     const next = action === "confirm-expense" ? "Đã xác nhận" : "Đã hủy";
     if (!confirm(`${next} phiếu chi ${id}?`)) return;
-    try { setExpenseVoucherStatus(id, next, role()); renderContent(); toast(`Đã cập nhật phiếu chi ${id}.`); }
+    try { await setExpenseVoucherStatus(id, next, role()); await refreshAccountingState(); renderContent(); toast(`Đã cập nhật phiếu chi ${id}.`); }
     catch (error) { toast(error.message, true); }
   }
 }
 
-function handleSubmit(event) {
+async function handleSubmit(event) {
   const form = event.target;
   const shiftFormIds = ["cash-shift-request-form", "cash-shift-reconcile-form", "cash-shift-handover-form"];
   if (!["supplier-debt-form", "supplier-payment-form", "receipt-form", "expense-form", ...shiftFormIds].includes(form.id)) return;
@@ -1170,37 +1173,48 @@ function handleSubmit(event) {
   const values = Object.fromEntries(new FormData(form).entries());
   try {
     if (form.id === "cash-shift-request-form") {
-      requestCashShiftExplanation(form.dataset.id, values.note, role(), roleEmployees[role()]);
+      await requestCashShiftExplanation(form.dataset.id, values.note, roleEmployees[role()]);
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã gửi yêu cầu giải trình ca ${form.dataset.id}.`);
     } else if (form.id === "cash-shift-reconcile-form") {
-      reconcileCashShift(form.dataset.id, role(), roleEmployees[role()], values.note);
+      await reconcileCashShift(form.dataset.id, roleEmployees[role()], values.note);
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã đối soát ca ${form.dataset.id}.`);
     } else if (form.id === "cash-shift-handover-form") {
-      confirmCashHandover(form.dataset.id, values, role(), roleEmployees[role()]);
+      await confirmCashHandover(form.dataset.id, values, roleEmployees[role()]);
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã xác nhận bàn giao ca ${form.dataset.id}.`);
     } else if (form.id === "supplier-debt-form") {
-      const debtId = createSupplierDebtFromReceipt(values.PN_Ma, role());
+      const debt = await createSupplierDebtFromReceipt(values.PN_Ma, role());
+      const debtId = debt.code;
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã ghi nhận khoản nợ ${debtId}.`);
     } else if (form.id === "supplier-payment-form") {
-      const paymentId = recordSupplierPayment(values.CTNNCC_Ma, values, role());
+      const payment = await recordSupplierPayment(values.CTNNCC_Ma, values, role());
+      const paymentId = payment.code;
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã ghi giao dịch ${paymentId} · ${values.method === "Tiền mặt" ? "Thành công" : "Chờ xác nhận"}.`);
     } else if (form.id === "receipt-form") {
-      const voucherId = saveReceiptVoucher({ ...values, PT_Ma: form.dataset.id }, role());
+      const voucher = await saveReceiptVoucher({ ...values, PT_Ma: form.dataset.id }, role());
+      const voucherId = voucher.code;
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã lưu phiếu thu nháp ${voucherId}.`);
     } else {
-      const voucherId = saveExpenseVoucher({ ...values, PC_Ma: form.dataset.id }, role());
+      const voucher = await saveExpenseVoucher({ ...values, PC_Ma: form.dataset.id }, role());
+      const voucherId = voucher.code;
+      await refreshAccountingState();
       closeModal();
       renderContent();
       toast(`Đã lưu phiếu chi nháp ${voucherId}.`);
@@ -1233,13 +1247,13 @@ function handleChange(event) {
     cashbookFilters[target.dataset.cashbookFilter] = target.value;
     renderContent();
   } else if (target.id === "accounting-location") {
-    localStorage.setItem("stmn-kho-demo-location", target.value);
+    selectedLocation = target.value;
     if (page === "accounting-overview" || page === "revenue-reconciliation") renderContent();
   } else if (target.id === "supplier-detail-select") {
     selectedSupplier = target.value;
     renderContent();
-  } else if (target.id === "payment-supplier") updateSupplierDebtForm(getState(), target.value);
-  else if (target.id === "payment-debt") updateSelectedDebtDetails(getState(), target.value);
+  } else if (target.id === "payment-supplier") updateSupplierDebtForm(accountingState, target.value);
+  else if (target.id === "payment-debt") updateSelectedDebtDetails(accountingState, target.value);
   else if (target.id === "accounting-from") {
     dateFrom = target.value;
     renderContent();
@@ -1264,7 +1278,9 @@ document.addEventListener("input", handleInput);
 document.addEventListener("change", handleChange);
 document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeModal(); });
 
-try { shell(); }
-catch (error) {
-  document.querySelector("#app").innerHTML = `<main class="content"><div class="warning-box">Không thể tải phân hệ kế toán: ${esc(error.message || "Lỗi không xác định.")}</div></main>`;
-}
+document.querySelector("#app").innerHTML = `<main class="content"><div class="info-box">Đang tải dữ liệu kế toán từ Backend…</div></main>`;
+refreshAccountingState()
+  .then(() => shell())
+  .catch((error) => {
+    document.querySelector("#app").innerHTML = `<main class="content"><div class="warning-box">Không thể tải dữ liệu kế toán từ Backend: ${esc(error.message || "Lỗi không xác định.")}</div></main>`;
+  });

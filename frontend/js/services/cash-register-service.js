@@ -177,9 +177,7 @@ export function calculateCashShift(shift, state = getState()) {
   const successfulPayments = payments.filter((row) => row.TTBH_TrangThai === "Thành công");
   const cash = successfulPayments.filter((row) => row.TTBH_PhuongThuc === "Tiền mặt")
     .reduce((sum, row) => sum + Number(row.TTBH_SoTien || 0), 0);
-  const qr = successfulPayments.filter((row) => row.TTBH_PhuongThuc === "QR")
-    .reduce((sum, row) => sum + Number(row.TTBH_SoTien || 0), 0);
-  const transfer = successfulPayments.filter((row) => row.TTBH_PhuongThuc === "Chuyển khoản")
+  const transfer = successfulPayments.filter((row) => ["Chuyển khoản", "QR"].includes(row.TTBH_PhuongThuc))
     .reduce((sum, row) => sum + Number(row.TTBH_SoTien || 0), 0);
   const pendingPayments = payments.filter((row) => row.TTBH_TrangThai === "Chờ xác nhận");
   const revenue = invoices.reduce((sum, row) => sum + Number(row.BH_TongCong || 0), 0);
@@ -193,8 +191,8 @@ export function calculateCashShift(shift, state = getState()) {
     invoices, payments, successfulPayments, pendingPayments,
     invoiceCount: invoices.length,
     paymentCount: successfulPayments.length,
-    revenue, cash, qr, transfer,
-    collected: cash + qr + transfer,
+    revenue, cash, transfer,
+    collected: cash + transfer,
     unpaidFromShiftInvoices,
     expectedCash,
     actualCash: shift.TienMatThucDem,

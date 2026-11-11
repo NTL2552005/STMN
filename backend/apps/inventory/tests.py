@@ -12,6 +12,7 @@ from rest_framework.test import APITestCase
 
 from apps.accounts.constants import STORE_OWNER_ROLE
 from apps.accounts.models import Employee
+from apps.accounting.models import SupplierDebt, SupplierReturnAdjustment
 from apps.catalog.models import Category, Product
 from apps.partners.models import Partner
 from apps.purchasing.models import PurchaseOrder, PurchaseOrderLine
@@ -365,6 +366,9 @@ class InventoryApiTests(APITestCase):
         self.assertEqual(balance.quantity, 4)
         self.assertEqual(movement.quantity_delta, 4)
         self.assertEqual(movement.document_code, code)
+        debt = SupplierDebt.objects.get(receipt__code=code)
+        self.assertEqual(debt.amount, 480)
+        self.assertEqual(debt.balance, 480)
         self.order.refresh_from_db()
         self.assertEqual(self.order.status, PurchaseOrder.Status.PARTIAL)
         progress = self.client.get(
@@ -667,6 +671,15 @@ class InventoryApiTests(APITestCase):
         self.assertEqual(movement.quantity_delta, -4)
         self.assertEqual(movement.receipt_line.code, line_code)
         self.assertEqual(movement.location, self.location)
+        debt = SupplierDebt.objects.get(receipt__code=receipt["PN_Ma"])
+        self.assertEqual(debt.amount, 1000)
+        self.assertEqual(debt.balance, 600)
+        self.assertEqual(
+            SupplierReturnAdjustment.objects.get(
+                supplier_return__code=code
+            ).amount,
+            400,
+        )
 
         stock = self.client.get(
             f"/api/inventory/stock/?view=detail&DD_Ma={self.location.code}"
@@ -846,6 +859,7 @@ class InventoryApiTests(APITestCase):
             SupplierReturn.Status.APPROVED,
         )
         self.assertFalse(StockMovement.objects.filter(source="TraHangNCC").exists())
+        self.assertFalse(SupplierReturnAdjustment.objects.exists())
 
     def test_supplier_return_validation_and_draft_patch_delete(self):
         receipt = self.create_confirmed_unlinked_receipt(quantity=10)

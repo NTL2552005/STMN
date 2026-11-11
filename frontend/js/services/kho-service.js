@@ -82,6 +82,20 @@ export function getState() {
       migrated = true;
     }
   }
+  const qrSalesPaymentIds = new Set();
+  for (const payment of state.ThanhToanBanHang) {
+    if (payment.TTBH_PhuongThuc === "QR") {
+      payment.TTBH_PhuongThuc = "Chuyển khoản";
+      qrSalesPaymentIds.add(payment.TTBH_Ma);
+      migrated = true;
+    }
+  }
+  for (const voucher of state.PhieuThu) {
+    if (qrSalesPaymentIds.has(voucher.TTBH_Ma) && voucher.PT_PhuongThuc === "QR") {
+      voucher.PT_PhuongThuc = "Chuyển khoản";
+      migrated = true;
+    }
+  }
   if (!Array.isArray(state.TraHangNCC)) {
     state.TraHangNCC = [];
     migrated = true;
